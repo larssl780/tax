@@ -1754,7 +1754,8 @@ class NorwegianTax:
         tut.display_df(frame)
         return orig_df
 
-    def tax_ties_with_config(self, do_all=False, atol=1e-8, rtol=1e-5):
+    def tax_ties_with_config(
+            self, do_all=False, atol=1e-8, rtol=1e-5, do_drilldown=False):
         if not do_all:
             return np.allclose(tut.config_tax(
                 self.case_idx, case_file=self.case_file), self.tax())
@@ -1774,14 +1775,17 @@ class NorwegianTax:
                     case_file=self.case_file))
 
         if not np.allclose(observed, expected, atol=atol, rtol=rtol):
-            exp = np.array(expected)
-            obs = np.array(observed)
+            if do_drilldown:
+                exp = np.array(expected)
+                obs = np.array(observed)
 
-            good_idx = np.abs(exp - obs) <= (atol + rtol * np.abs(obs))
-            bad_idx = np.where(~good_idx)[0]
+                good_idx = np.abs(exp - obs) <= (atol + rtol * np.abs(obs))
+                bad_idx = np.where(~good_idx)[0]
 
-            print("Some checks failed!")
-            return bad_idx
+                print("Some checks failed!")
+                return bad_idx
+
+            return False
         print("All tests passed!")
         return True
 
