@@ -1051,6 +1051,7 @@ def compare_calculated_tax_vs_correct_tax(
 class NorwegianTax:
     """
     to facilitate easy input
+    add random text to trigger a code push...
     """
 
     def __init__(self, salary=0, birth_year=1978, tax_year=None, gains_from_sale_fondskonto_share_comp=0, gains_from_sale_fondskonto_interest_comp=0, gains_from_sale_of_shares_ask=0, property_taxable_value=0, pension=0, pension_months=12, pension_percent=100, property_sale_proceeds=0, rental_income=0, property_sale_loss=0, bank_deposits=0,
