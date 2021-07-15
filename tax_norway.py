@@ -1447,7 +1447,7 @@ class NorwegianTax:
 
     @case_idx.setter
     def case_idx(self, value):
-        print("Trying to set case_idx to %s" % value)
+        # print("Trying to set case_idx to %s" % value)
         if value is not None:
             self._case_idx = value
             self.__init__()
@@ -1755,7 +1755,7 @@ class NorwegianTax:
         return orig_df
 
     def tax_ties_with_config(
-            self, do_all=False, atol=1e-8, rtol=1e-5, do_drilldown=False):
+            self, do_all=False, atol=1e-8, rtol=1e-5):
         if not do_all:
             return np.allclose(tut.config_tax(
                 self.case_idx, case_file=self.case_file), self.tax())
@@ -1764,7 +1764,7 @@ class NorwegianTax:
         observed = []
         expected = []
         for case_idx in tqdm(case_numbers):
-            print("working on case number %d" % case_idx)
+            # print("working on case number %d" % case_idx)
             setattr(self, 'case_idx', case_idx)
             # self.case_idx =
             # pdb.set_trace()
@@ -1774,18 +1774,16 @@ class NorwegianTax:
                     self.case_idx,
                     case_file=self.case_file))
 
+        # pdb.set_trace()
         if not np.allclose(observed, expected, atol=atol, rtol=rtol):
-            if do_drilldown:
-                exp = np.array(expected)
-                obs = np.array(observed)
+            exp = np.array(expected)
+            obs = np.array(observed)
+            good_idx = np.abs(exp - obs) <= (atol + rtol * np.abs(obs))
+            # pdb.set_trace()
+            bad_idx = np.where(~good_idx)[0]
+            print("Some checks failed!")
+            return bad_idx
 
-                good_idx = np.abs(exp - obs) <= (atol + rtol * np.abs(obs))
-                bad_idx = np.where(~good_idx)[0]
-
-                print("Some checks failed!")
-                return bad_idx
-
-            return False
         print("All tests passed!")
         return True
 
