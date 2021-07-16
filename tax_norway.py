@@ -1506,28 +1506,28 @@ class NorwegianTax:
             self.wealth_fondskonto_cash_interest + self.wealth_ask_cash
 
     @property
+    def pension_deduction_raw(self):
+      return max(min(self.pension * self.parameter('pension_deduction_multiplier'),
+                                    self.parameter('max_pension_deduction')), self.parameter('min_pension_deduction'))
+    @property
+    def income_deduction_raw(self):
+      return max( min( self.salary * self.parameter('deduction_multiplier'), self.parameter('max_deduction_limit')), self.parameter('min_deduction_limit'))
+    @property
     def pension_and_income_minimum_deduction(self):
         """
         does what it says
         """
 
-        if (abs(self.pension) < 1e-4) or (abs(self.salary) < 1e-4):
+        if (abs(self.pension) < 1e-4) and (abs(self.salary) < 1e-4):
             return 0
 
-        income_deduction = max(
-            min(
-                self.salary *
-                self.parameter('deduction_multiplier'),
-                self.parameter('max_deduction_limit')),
-            self.parameter('min_deduction_limit'))
         # you can't deduct more than what you earn:
-        income_deduction = min(income_deduction, self.salary)
-        pension_deduction = max(min(self.pension * self.parameter('pension_deduction_multiplier'),
-                                    self.parameter('max_pension_deduction')), self.parameter('min_pension_deduction'))
-        combo_deduction = pension_deduction + \
+        income_deduction = min(self.income_deduction_raw, self.salary)
+        
+        combo_deduction = self.pension_deduction_raw + \
             max(min(self.salary * self.parameter('deduction_multiplier'), self.parameter('max_deduction_limit')),
                 min(self.parameter('min_pension_deduction'), self.salary, self.pension))
-
+        
         return min(max(income_deduction, combo_deduction),
                    self.parameter('max_deduction_limit'))
 
@@ -1538,16 +1538,14 @@ class NorwegianTax:
         this could be read from db, of course
         https://www.skatteetaten.no/en/rates/minimum-standard-deduction/
         """
-        return int(
-            np.round(min(max(min(self.parameter('deduction_multiplier') * self.salary, self.parameter('max_deduction_limit')), self.parameter('min_deduction_limit')), self.salary)))
+        return int(min(self.income_deduction_raw, self.salary))
 
     @property
     def pension_only_minimum_deduction(self):
         """
         does what it says
         """
-        return min(max(min(self.parameter('pension_deduction_multiplier') * self.pension,
-                           self.parameter('max_pension_deduction')), self.parameter('min_pension_deduction')), self.pension)
+        return min(self.pension_deduction_raw, self.pension)
 
     @property
     def bracket_tax(self):
