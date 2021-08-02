@@ -1100,7 +1100,7 @@ class NorwegianTax:
         self._wealth_fondskonto_shares = wealth_fondskonto_shares
         self._case_file = 'no_test_cases.ini'
         self._session = requests.Session()
-
+        # TODO: Why are we hardwiring the no test cases below when we have already set it? Fragile...
         if case_idx is not None:
             self._case_idx = case_idx
             inputs = tut.inputs_for_case_number(
