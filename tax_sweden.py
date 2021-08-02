@@ -75,6 +75,8 @@ class SwedishTax:
         self._case_file = 'se_test_cases.ini'
         # TODO: is this used anywhere?
         self._session = requests.Session()
+        self._income_deduction = None
+        self._job_deduction = None
 
         if case_idx is not None:
             self._case_idx = case_idx
@@ -300,7 +302,40 @@ class SwedishTax:
     @property
     def case_file(self):
         return self._case_file
+    @property
+    def income_deduction(self):
+      if self._income_deduction is None:
+        return  np.floor(min(max(self.parameter( 'skattereduktionForvarvsinkomst_procent') / 100 * ( self.taxable_income() - self.parameter('skattereduktionForvarvsinkomst_golv')), 0), self.parameter('skattereduktionForvarvsinkomst_tak')))
+      return self._income_deduction
+      
+    @income_deduction.setter
+    def income_deduction(self, value):
+      # assert isinstance(value, float), "Income deduction needs to be float, not %s"%(str(type(value)))
+      self._income_deduction = value
 
+    @property
+    def job_deduction(self):
+      if self._job_deduction is None:
+        return self.jobbskatteavdrag()
+      return self._job_deduction
+    @job_deduction.setter
+    def job_deduction(self, value):
+      self._job_deduction = value
+    @property
+    def lower_limit_for_income_tax(self):
+      return np.floor(self.parameter('pris_bas_belopp') * self.parameter('skatt_lagre_inkomst_multipel'))
+
+    @property
+    def funeral_rate(self):
+      if self.municipality == 'Stockholm':
+        return 0.065 / 100
+      if self.municipality == 'Tranas':
+        return 0.24 / 100
+
+      return 0.253 /100
+    @property
+    def funeral_fee(self):
+      return np.floor(self.funeral_rate * self.taxable_income())
     def qualified_shares_income_taxation(self):
         """
         returns the extra income we need to add and then the extra capital_income we need to add
@@ -349,6 +384,71 @@ class SwedishTax:
 
         return extra_salary, extra_listed_funds_and_shares_profit, extra_unlisted_funds_loss
 
+    def adjusted_attribute_value(self, attribute='salary'):
+
+        """
+        returns the extra income we need to add and then the extra capital_income we need to add
+        Detta ar blankett K10
+        """
+        extra_unlisted_funds_loss = 0
+        extra_salary = 0
+        extra_listed_funds_and_shares_profit = 0
+        extra_listed_loss = 0
+        
+        if abs(self.qualified_shares_profit_loss) > 1e-4:
+
+            if self.qualified_shares_profit_loss < 0:
+                # this is point 3.4b in the K10 form:
+                extra_unlisted_funds_loss += abs(
+                    self.qualified_shares_profit_loss) * 2 / 3
+            else:
+                # we assume no dividend, so we end up at 3.7b of K10:
+                # pdb.set_trace()
+                # qualified_shares_income_limit =
+                # upper_limit_employment_income =
+                qualified_profit = max(
+                    self.qualified_shares_profit_loss -
+                    self.parameter('gransbelopp_forenkling'),
+                    0)
+                employment_income = min(
+                    qualified_profit,
+                    self.parameter('upper_limit_employment_income'))
+                # gets taxed as employment income
+                extra_salary += employment_income
+                # residual = qualified_profit - employment_income
+                # work out what should be tax as capital income (this we'll add to
+                # the listed_funds_and_share_profit):
+                capital_gain = max(
+                    self.qualified_shares_profit_loss - employment_income, 0)
+                # assume we don't have any "sparat utdelningsutrymme", the belowe
+                # captures points 3.12-3.13 in the K10 form:
+                to_be_taxed_as_capital = 0
+                if self.parameter('gransbelopp_forenkling') > capital_gain:
+                    to_be_taxed_as_capital += (2 / 3) * capital_gain
+                else:
+                    to_be_taxed_as_capital += (2 / 3) * \
+                        self.parameter('gransbelopp_forenkling')
+                to_be_taxed_as_capital += max(capital_gain -
+                                              self.parameter('gransbelopp_forenkling'), 0)
+                extra_listed_funds_and_shares_profit += to_be_taxed_as_capital
+
+        # return extra_salary, extra_listed_funds_and_shares_profit, extra_unlisted_funds_loss
+
+        if self.unlisted_shares_profit_loss < 0:
+            extra_listed_loss += (5 / 6) * abs(self.unlisted_shares_profit_loss)
+        else:
+            extra_listed_funds_and_shares_profit += (
+                5 / 6) * self.unlisted_shares_profit_loss
+        if attribute == 'salary':
+          return self.salary + extra_salary
+        if attribute == 'listed_funds_and_shares_profit':
+          return self.listed_funds_and_shares_profit + extra_listed_funds_and_shares_profit
+        if attribute == 'unlisted_funds_loss':
+          return self.unlisted_funds_loss + extra_unlisted_funds_loss
+        if attribute == 'listed_funds_and_shares_loss':
+          return self.listed_funds_and_shares_loss + extra_listed_loss
+        raise Exception("Attributed == '%s' not handled!"%attribute)
+
     # def adjusted_salary(self):
     #   if abs(self.qualified_shares_profit_loss) > 1e-4:
 
@@ -374,7 +474,7 @@ class SwedishTax:
 
         return extra_listed_funds_and_shares_profit, extra_listed_loss
 
-    def calc_deduction(self, salary, include_extra=True):
+    def calc_deduction(self, include_extra=True):
         """
         grundavdrag
 
@@ -387,17 +487,17 @@ class SwedishTax:
         # if birth_year > limit_year:
         pbb = self.parameter('pris_bas_belopp')
         # TODO: Add these as parameters, will change
-        if salary <= 0.99 * pbb:
+        if self.salary_rounded() <= 0.99 * pbb:
             # A in s/s
             val = 0.423 * pbb
-        elif salary <= 2.72 * pbb:
+        elif self.salary_rounded() <= 2.72 * pbb:
             # B in s/s
-            val = 0.423 * pbb + 0.2 * (salary - 0.99 * pbb)
-        elif salary <= 3.11 * pbb:
+            val = 0.423 * pbb + 0.2 * (self.salary_rounded() - 0.99 * pbb)
+        elif self.salary_rounded() <= 3.11 * pbb:
             # C in s/s
             val = 0.77 * pbb
-        elif salary <= 7.88 * pbb:
-            val = 0.77 * pbb - 0.1 * (salary - 3.11 * pbb)
+        elif self.salary_rounded() <= 7.88 * pbb:
+            val = 0.77 * pbb - 0.1 * (self.salary_rounded() - 3.11 * pbb)
         else:
             # E in the spreadsheet
             val = 0.293 * pbb
@@ -407,40 +507,40 @@ class SwedishTax:
 
         extra = 0
         if (self.birth_year <= limit_year) and include_extra:
-            if salary <= 0.99 * pbb:
+            if self.salary_rounded() <= 0.99 * pbb:
                 extra = 0.687 * pbb
-            elif salary <= 1.11 * pbb:
-                extra = 0.885 * pbb - 0.2 * salary
-            elif salary <= 2.72 * pbb:
-                extra = 0.6 * pbb + 0.057 * salary
-            elif salary <= 3.11 * pbb:
-                extra = 0.34 * pbb - 0.169 * salary
-            elif salary <= 3.21 * pbb:
-                extra = 0.44 * salary - 0.48 * pbb
+            elif self.salary_rounded() <= 1.11 * pbb:
+                extra = 0.885 * pbb - 0.2 * self.salary_rounded()
+            elif self.salary_rounded() <= 2.72 * pbb:
+                extra = 0.6 * pbb + 0.057 * self.salary_rounded()
+            elif self.salary_rounded() <= 3.11 * pbb:
+                extra = 0.34 * pbb - 0.169 * self.salary_rounded()
+            elif self.salary_rounded() <= 3.21 * pbb:
+                extra = 0.44 * self.salary_rounded() - 0.48 * pbb
             # elif salary <= 4.45 * basbelopp:
             #   extra = 0.207 * basbelopp + 0.228 * salary
-            elif salary <= 7.88 * pbb:
-                extra = 0.207 * pbb + 0.228 * salary
-            elif salary <= 8.08 * pbb:
-                extra = 0.995 * pbb + 0.128 * salary
-            elif salary <= 11.28 * pbb:
+            elif self.salary_rounded() <= 7.88 * pbb:
+                extra = 0.207 * pbb + 0.228 * self.salary_rounded()
+            elif self.salary_rounded() <= 8.08 * pbb:
+                extra = 0.995 * pbb + 0.128 * self.salary_rounded()
+            elif self.salary_rounded() <= 11.28 * pbb:
                 extra = 2.029 * pbb
-            elif salary <= 12.53 * pbb:
-                extra = 9.023 * pbb - 0.62 * salary
-            elif salary <= 13.54 * pbb:
+            elif self.salary_rounded() <= 12.53 * pbb:
+                extra = 9.023 * pbb - 0.62 * self.salary_rounded()
+            elif self.salary_rounded() <= 13.54 * pbb:
                 # extra = 1.654 * basbelopp - 0.045 * salary
                 extra = 1.253 * pbb
-            elif salary <= 35.36 * pbb:
-                extra = 2.03 * pbb - 0.0574 * salary
+            elif self.salary_rounded() <= 35.36 * pbb:
+                extra = 2.03 * pbb - 0.0574 * self.salary_rounded()
             else:
                 extra = 0.215 * pbb
 
         # print("Extra = %.0f"%extra)
         # pdb.set_trace()
         raw = np.ceil((val + extra) / 100) * 100
-        return min(raw, salary)
+        return min(raw, self.salary_rounded())
 
-    def jobbskatteavdrag(self, salary):
+    def jobbskatteavdrag(self):
         """
         break this out into own function since it's quite finicky
         """
@@ -450,33 +550,41 @@ class SwedishTax:
         tax_rate = self.parameter('kommunalskatt_%s' % self.municipality) / 100
         pbb = self.parameter('pris_bas_belopp')
         if self.birth_year <= limit_year:
-            if salary <= 100e3:
-                val = 0.2 * salary
-            elif salary <= 300e3:
-                val = 15e3 + 0.05 * salary
-            elif salary <= 600e3:
+            if self.salary_rounded() <= 100e3:
+                val = 0.2 * self.salary_rounded()
+            elif self.salary_rounded() <= 300e3:
+                val = 15e3 + 0.05 * self.salary_rounded()
+            elif self.salary_rounded() <= 600e3:
                 val = 30e3
             else:
-                val = 30e3 - 0.03 * (salary - 600e3)
+                val = 30e3 - 0.03 * (self.salary_rounded() - 600e3)
         else:
-            if salary <= 0.91 * pbb:
-                val = tax_rate * (salary - self.calc_deduction(salary))
-            elif salary <= 3.24 * pbb:
-                val = (0.91 * pbb + 0.3405 * (salary - 0.91 * pbb) -
-                       self.calc_deduction(salary)) * tax_rate
-            elif salary <= 8.08 * pbb:
-                val = (1.703 * pbb + 0.128 * (salary - 3.24 * pbb) -
-                       self.calc_deduction(salary)) * tax_rate
-            elif salary <= 13.54 * pbb:
-                val = (2.323 * pbb - self.calc_deduction(salary)) * tax_rate
+            if self.salary_rounded() <= 0.91 * pbb:
+                val = tax_rate * (self.salary_rounded() - self.calc_deduction())
+            elif self.salary_rounded() <= 3.24 * pbb:
+                val = (0.91 * pbb + 0.3405 * (self.salary_rounded() - 0.91 * pbb) -
+                       self.calc_deduction()) * tax_rate
+            elif self.salary_rounded() <= 8.08 * pbb:
+                val = (1.703 * pbb + 0.128 * (self.salary_rounded() - 3.24 * pbb) -
+                       self.calc_deduction()) * tax_rate
+            elif self.salary_rounded() <= 13.54 * pbb:
+                val = (2.323 * pbb - self.calc_deduction()) * tax_rate
             else:
-                val = (2.323 * pbb - self.calc_deduction(salary)) * \
-                    tax_rate - 0.03 * (salary - 13.54 * pbb)
+                val = (2.323 * pbb - self.calc_deduction()) * \
+                    tax_rate - 0.03 * (self.salary_rounded() - 13.54 * pbb)
 
         return np.floor(val)
 
-    def capital_surplus_deficit(self, listed_funds_and_shares_profit=0,
-                                listed_funds_and_shares_loss=0, unlisted_funds_loss=0):
+    def net_interest(self):
+      return self.int_inc_tax_not_withheld + self.int_inc_tax_withheld - self.interest_expense
+    def net_listed_funds_and_shares(self):
+      return self.adjusted_attribute_value('listed_funds_and_shares_profit') - self.adjusted_attribute_value('listed_funds_and_shares_loss')
+    def net_unlisted_funds_and_shares(self):
+      return self.unlisted_funds_profit - 0.7 * self.adjusted_attribute_value('unlisted_funds_loss')
+    def net_property(self):
+      return self.sale_private_property_profit * 22 / 30 - self.sale_private_property_loss * 0.5 + 0.9 * self.sale_commercial_property_profit - 0.63 * self.sale_commercial_property_loss
+
+    def capital_surplus_deficit(self):
         """
         # overskottUnderskottKapital:
         # divide into different areas:
@@ -488,32 +596,18 @@ class SwedishTax:
         #  Forsaljning privatbostad (profit vs loss, net is 50% multipllier)
         #  Forsäljning näringsbostad (p vs l, net is 63%)
         """
-
-        # TODO: move stuff into parameters
+        # TODO: Move hardwires into parameter file
         surplus_deficit = 0
-        net_standard = self.standard_income
-        net_rental = self.rental_income
-        net_interest = self.int_inc_tax_not_withheld + \
-            self.int_inc_tax_withheld - self.interest_expense
-        net_listed_funds_and_shares = listed_funds_and_shares_profit - \
-            listed_funds_and_shares_loss
-        net_unlisted_funds_and_shares = self.unlisted_funds_profit - 0.7 * unlisted_funds_loss
-        net_property = self.sale_private_property_profit * 22 / 30 - self.sale_private_property_loss * \
-            0.5 + 0.9 * self.sale_commercial_property_profit - \
-            0.63 * self.sale_commercial_property_loss
-
-        # net_commercial_property =
-
-        surplus_deficit += net_standard
-        surplus_deficit += net_rental
-        surplus_deficit += net_interest
-        if net_listed_funds_and_shares < 0:
-            surplus_deficit += 0.7 * net_listed_funds_and_shares
+        surplus_deficit += self.standard_income
+        surplus_deficit += self.rental_income
+        surplus_deficit += self.net_interest()
+        if self.net_listed_funds_and_shares() < 0:
+            surplus_deficit += 0.7 * self.net_listed_funds_and_shares()
         else:
-            surplus_deficit += net_listed_funds_and_shares
-        # if net_unlisted_funds_and_shares < 0:
-        surplus_deficit += net_unlisted_funds_and_shares
-        surplus_deficit += net_property
+            surplus_deficit += self.net_listed_funds_and_shares()
+        
+        surplus_deficit += self.net_unlisted_funds_and_shares()
+        surplus_deficit += self.net_property()
         surplus_deficit -= self.investor_deduction
 
         return surplus_deficit
@@ -530,16 +624,12 @@ class SwedishTax:
         return np.floor(0.3 * min(100000, netto_underskott) +
                         0.21 * max(netto_underskott - 100000, 0))
 
-    def capital_income_tax(self, listed_funds_and_shares_profit=0, listed_funds_and_shares_loss=0,
-                           unlisted_funds_loss=0, tax_reduction_cap=0, verbose=False):
+    def capital_income_tax(self, verbose=False):
         """
         returns cap_tax, cap_tax_reduction, cap_tax_basis
 
         """
-        surplus_deficit = self.capital_surplus_deficit(
-            listed_funds_and_shares_profit=listed_funds_and_shares_profit,
-            listed_funds_and_shares_loss=listed_funds_and_shares_loss,
-            unlisted_funds_loss=unlisted_funds_loss)
+        surplus_deficit = self.capital_surplus_deficit()
 
         cap_tax_reduction = 0
         state_rate = self.parameter('statlig_skatt') / 100
@@ -552,128 +642,59 @@ class SwedishTax:
             cap_tax_reduction_calc = self._skatte_reduktion(surplus_deficit)
             if verbose:
                 print("Calculated tax reduction cap is %f and the calculated deduction is %f" % (
-                    tax_reduction_cap, cap_tax_reduction_calc))
+                    self.tax_reduction_cap(), cap_tax_reduction_calc))
             cap_tax_reduction = max(
-                min(tax_reduction_cap, cap_tax_reduction_calc), 0)
+                min(self.tax_reduction_cap(), cap_tax_reduction_calc), 0)
         else:
             cap_tax = state_rate * surplus_deficit
 
         return cap_tax, cap_tax_reduction, np.ceil(surplus_deficit), is_surplus
 
+    def taxable_income(self):
+      return np.floor(self.adjusted_attribute_value('salary') / 100) * 100 - self.calc_deduction(self.salary_rounded())
+    def municipal_tax(self):
+      return np.floor(self.taxable_income() * self.parameter( 'kommunalskatt_%s' % self.municipality) / 100)
+    def salary_rounded(self):
+      return np.floor(self.adjusted_attribute_value('salary') / 100) * 100
+    def state_income_tax(self):
+      return self.parameter('statlig_inkomst_skatt') / 100 * max(self.taxable_income() - self.parameter('skiktgrans'), 0)
+    def absolute_pension_cutoff(self):
+      return (self.parameter('allman_pension_noll') / 100) * self.parameter('inkomst_bas_belopp')
+        # abs_pension_cap = pension_ceil_mult * inkomst_bas_belopp
+    def absolute_pension_cap(self):
+      return self.parameter('allman_pension_tak') * self.parameter('inkomst_bas_belopp')
+    def pension(self):
+      pension = 0 if self.adjusted_attribute_value('salary') < self.absolute_pension_cutoff() else min(
+            self.parameter('allman_pension_procent') / 100 * self.adjusted_attribute_value('salary'), self.absolute_pension_cap() * self.parameter('allman_pension_procent') / 100)
+
+      return np.floor(pension / 100) * 100
+    def tax_reduction_cap(self):
+      # print('hej')
+      return self.municipal_tax() + self.state_income_tax() - self.job_deduction - self.income_deduction - self.pension()
+
+    def public_service_cost(self):
+      return min(self.parameter('public_service_avgift'), self.parameter('public_service_percent') / 100 * self.taxable_income())
     def tax(self, apply_rounding=True):
 
         if self.investor_deduction > self.parameter('max_investor_deduction'):
             raise Exception(
                 "The max investor_deduction (investeraravdrag) is %d" %
                 self.parameter('max_investor_deduction'))
-        inkomst_bas_belopp = self.parameter('inkomst_bas_belopp')
-        pris_bas_belopp = self.parameter('pris_bas_belopp')
-        muni_rate = self.parameter(
-            'kommunalskatt_%s' %
-            self.municipality) / 100
-        state_rate = self.parameter('statlig_skatt') / 100
 
-        lower_inc_multiple = self.parameter('skatt_lagre_inkomst_multipel')
-        lower_inc = np.floor(pris_bas_belopp * lower_inc_multiple)
-        pension_rate = self.parameter('allman_pension_procent') / 100
-        pension_cutoff = self.parameter('allman_pension_noll') / 100
-        pension_ceil_mult = self.parameter('allman_pension_tak')
-        abs_pension_cutoff = pension_cutoff * inkomst_bas_belopp
-        abs_pension_cap = pension_ceil_mult * inkomst_bas_belopp
-        # pdb.set_trace()
-        public_service_percent = self.parameter('public_service_percent') / 100
-        public_service_fee = self.parameter('public_service_avgift')
-
-        income_deduction = self.parameter('skattereduktionForvarvsinkomst')
-        income_deduction_floor = self.parameter(
-            'skattereduktionForvarvsinkomst_golv')
-        income_deduction_cap = self.parameter(
-            'skattereduktionForvarvsinkomst_tak')
-        income_deduction_percent = self.parameter(
-            'skattereduktionForvarvsinkomst_procent') / 100
-
-        state_income_cutoff = self.parameter('skiktgrans')
-        state_income_tax_rate = self.parameter('statlig_inkomst_skatt') / 100
-
-        if self.municipality == 'Stockholm':
-            funeral_rate = 0.065 / 100
-        elif self.municipality == 'Tranas':
-            funeral_rate = 0.24 / 100
-        else:
-            funeral_rate = 0.253 / 100
-
-        # calculate the deduction:
-
-        # must compute the qualified shares first, to see if anything needs to be
-        # added to salary etc:
-        extra_salary, extra_listed_funds_and_shares_profit, extra_unlisted_funds_loss = self.qualified_shares_income_taxation()
-        extra_extra_listed_funds_and_shares_profit, extra_listed_loss = self.unqualified_shares_income_taxation()
-
-        # TODO: See if we can move these into their own member
-        # functions/properties (eg. "adjusted salary")
-        salary = self.salary
-        salary += extra_salary
-        listed_funds_and_shares_loss = self.listed_funds_and_shares_loss
-        unlisted_funds_loss = self.unlisted_funds_loss
-
-        listed_funds_and_shares_profit = self.listed_funds_and_shares_profit
-        listed_funds_and_shares_profit += (
-            extra_listed_funds_and_shares_profit +
-            extra_extra_listed_funds_and_shares_profit)
-        listed_funds_and_shares_loss += extra_listed_loss
-        unlisted_funds_loss += extra_unlisted_funds_loss
-        # first determine the "income class" (own concept just to make
-        # computations easier to read)
-        salary_rounded = np.floor(salary / 100) * 100
-        deduction = self.calc_deduction(salary_rounded)
-
-        # deduction_pension =calc_deduction(salary_rounded, basbelopp=pris_bas_belopp, birth_year=birth_year, tax_year=tax_year, include_extra=False)
+        cap_tax, cap_tax_reduction, cap_tax_basis, is_surplus = self.capital_income_tax()
 
         # pdb.set_trace()
-        # if birth_year <= limit_year:
-        #   extra_deduction =
-
-        taxable_income = salary_rounded - deduction
-        muni_tax = np.floor(taxable_income * muni_rate)
-
-        # not used, this was a detour...
-        # muni_tax_pension = np.floor((salary_rounded -deduction_pension) * muni_rate)
-        state_income_tax = state_income_tax_rate * \
-            max(taxable_income - state_income_cutoff, 0)
-
-        # pdb.set_trace()
-        pension = 0 if salary < abs_pension_cutoff else min(
-            pension_rate * salary, abs_pension_cap * pension_rate)
-
-        pension = np.floor(pension / 100) * 100
-        job_deduction = self.jobbskatteavdrag(salary_rounded)
-
-        # pdb.set_trace()
-        income_deduction = np.floor(min(max(income_deduction_percent * (
-            taxable_income - income_deduction_floor), 0), income_deduction_cap))
-
-        # pdb.set_trace()
-        tax_reduction_cap = muni_tax + state_income_tax - \
-            job_deduction - income_deduction - pension
-        # pdb.set_trace()
-        # if tax_reduction_cap < 0:
-        # pdb.set_trace()
-        # job_deduction += tax_reduction_cap
-        cap_tax, cap_tax_reduction, cap_tax_basis, is_surplus = self.capital_income_tax(
-            listed_funds_and_shares_profit=listed_funds_and_shares_profit, listed_funds_and_shares_loss=listed_funds_and_shares_loss, unlisted_funds_loss=unlisted_funds_loss, tax_reduction_cap=tax_reduction_cap)
-
-        # pdb.set_trace()
-        hypo_pension_reduction = pension
+        hypo_pension_reduction = self.pension()
         if not is_surplus or abs(cap_tax_basis) < 1e-4:
-            if tax_reduction_cap < 0:
+            if self.tax_reduction_cap() < 0:
                 # if birth_year > limit_year:
-                orig_jsa = copy.deepcopy(job_deduction)
+                orig_jsa = copy.deepcopy(self.job_deduction)
                 residual = 0
-                if abs(tax_reduction_cap) > job_deduction:
-                    residual = abs(tax_reduction_cap) - job_deduction
-                    job_deduction = 0
+                if abs(self.tax_reduction_cap()) > self.job_deduction:
+                    residual = abs(self.tax_reduction_cap()) - self.job_deduction
+                    self.job_deduction = 0
                 else:
-                    job_deduction += tax_reduction_cap
+                  self.job_deduction = self.job_deduction + self.tax_reduction_cap()
 
                 if residual > 0:
                     # pdb.set_trace()
@@ -683,58 +704,48 @@ class SwedishTax:
                         print("Not sure what deduction to decrease!?")
                         pdb.set_trace()
                 else:
-                    job_deduction += income_deduction
-                    income_deduction = 0
+                    self.job_deduction = self.job_deduction + self.income_deduction
+                    self.income_deduction = 0
                 print(
                     "Changing jobbskatteavdrag from %.0f to %.0f" %
-                    (orig_jsa, job_deduction))
+                    (orig_jsa, self.job_deduction))
 
-        funeral_fee = np.floor(funeral_rate * taxable_income)
-
-        public_service_cost = min(
-            public_service_fee, public_service_percent * taxable_income)
-
-        # this needs verification:
-        # pdb.set_trace()
-        # if (muni_tax_pension > pension) and (abs(muni_tax)>1e-4):
         non_zero_surplus = False
         if is_surplus:
             non_zero_surplus = cap_tax_basis > 0
-        # pdb.set_trace()
-        # strict_surplus = (cap_tax_basis)
-        # pension_reduction = pension
-        if abs(muni_tax) > 1e-4:
+        
+        if abs(self.municipal_tax()) > 1e-4:
             pension_reduction = hypo_pension_reduction
         else:
             if not non_zero_surplus:
 
                 pension_reduction = 0
             else:
-                pension_reduction = pension
+                pension_reduction = self.pension()
 
         # pdb.set_trace()
-        if abs(muni_tax) < 1e-4:
+        if abs(self.municipal_tax()) < 1e-4:
             # we can't get this deduction if we don't pay any muni tax:
             # https://www4.skatteverket.se/rattsligvagledning/edition/2021.1/2940.html
             # ('avrakning av reduktionen')
-            job_deduction = 0
+            self.job_deduction = 0
 
-        if salary > lower_inc:
-            total_tax = muni_tax + cap_tax + pension - pension_reduction + funeral_fee + \
-                public_service_cost - job_deduction - income_deduction + \
-                state_income_tax - cap_tax_reduction
+        if self.adjusted_attribute_value('salary') > self.lower_limit_for_income_tax:
+            total_tax = self.municipal_tax() + cap_tax + self.pension() - pension_reduction + self.funeral_fee + \
+                self.public_service_cost() - self.job_deduction - self.income_deduction + \
+                self.state_income_tax() - cap_tax_reduction
         else:
             total_tax = 0
 
         # total_tax ties with 'slutligSkatt' in the skatteverket calculator, but that's not what we actually end up paying,
         # this catches that
 
-        self.tax_breakdown_dict = {'slutligSkatt': total_tax - state_rate * self.int_inc_tax_withheld, 'kommunalInkomstskatt': muni_tax, 'statligInkomstskattKapitalinkomst': cap_tax, 'allmanPensionsavgift': pension, 'skattereduktionAllmanPensionsavgift': pension_reduction,
-                                   'begravningsavgift': funeral_fee, 'publicServiceAvgift': public_service_cost, 'skattereduktionArbetsinkomster': job_deduction, 'skattereduktionForvarvsinkomst': income_deduction,
-                                   'statligInkomstskattForvarvsinkomst': state_income_tax, 'overskottUnderskottKapital': cap_tax_basis, 'forvarvsinkomst': salary,
-                                   'faststalldForvarvsinkomst': salary_rounded, 'beskattningsbarForvarvsinkomst': taxable_income, 'grundavdrag': deduction, 'kommunalLandstingsSkattesats': muni_rate,
-                                   'skattereduktionUnderskottKapital': cap_tax_reduction, 'avdragenSkattPaKapital': state_rate * self.int_inc_tax_withheld}
-        return total_tax - state_rate * self.int_inc_tax_withheld
+        self.tax_breakdown_dict = {'slutligSkatt': total_tax - self.parameter('statlig_skatt') / 100 * self.int_inc_tax_withheld, 'kommunalInkomstskatt': self.municipal_tax(), 'statligInkomstskattKapitalinkomst': cap_tax, 'allmanPensionsavgift': self.pension(), 'skattereduktionAllmanPensionsavgift': pension_reduction,
+                                   'begravningsavgift': self.funeral_fee, 'publicServiceAvgift': self.public_service_cost(), 'skattereduktionArbetsinkomster': self.job_deduction, 'skattereduktionForvarvsinkomst': self.income_deduction,
+                                   'statligInkomstskattForvarvsinkomst': self.state_income_tax(), 'overskottUnderskottKapital': cap_tax_basis, 'forvarvsinkomst': self.adjusted_attribute_value('salary'),
+                                   'faststalldForvarvsinkomst': self.salary_rounded(), 'beskattningsbarForvarvsinkomst': self.taxable_income(), 'grundavdrag': self.calc_deduction(), 'kommunalLandstingsSkattesats': self.parameter('kommunalskatt_%s' %self.municipality) / 100,
+                                   'skattereduktionUnderskottKapital': cap_tax_reduction, 'avdragenSkattPaKapital': self.parameter('statlig_skatt') / 100 * self.int_inc_tax_withheld}
+        return total_tax - self.parameter('statlig_skatt') / 100 * self.int_inc_tax_withheld
 
     def tax_ties_with_config(
             self, do_all=False, atol=1e-8, rtol=1e-5):
@@ -963,26 +974,7 @@ class SwedishTax:
                                                                    'underlagSkattereduktionFastighetsavgiftHelAvgift': ''},
                                       'underlagFastighetsskatt': {'fastighetsskattSmahusTomt': 'null'}}
         return data
-    # def true_tax_data_frame(self):
-
-    #   """
-    #   this reads from the online calculator
-    #   standard_income = schablonintakt
-    #   """
-
-    #   # args = locals()
-    #   _input = {}
-    #   for key, value in args.items():
-    #       if key not in ['return_fields']:
-    #           _input[key] = value
-
-    #   frame = parse_response(**_input)
-    #   if return_payload:
-    #       return frame
-    #   if (len(return_fields) == 1) and (return_fields[0] == 'all'):
-    #       return frame
-
-    #   return frame[frame.item.isin(return_fields)].loc[:, ['item', 'value']]
+    
     def tax_ties_with_web(self, do_all=False, atol=1e-8,
                           rtol=1e-5, refresh=False, verbose=False):
         """
