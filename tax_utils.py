@@ -311,3 +311,33 @@ def syncsort(a_arr, b_arr):
     """
     a_arr, b_arr = (list(t) for t in zip(*sorted(zip(a_arr, b_arr))))
     return a_arr, b_arr
+
+def get_request_from_session(session=None, url='', refresh=False, headers=None):
+    """
+    don't want the session object as part o fthe cache key
+    """
+
+    if __can_cache__:
+        ck = cache.create_cache_key({'url':url})
+        rv = cache.extract_cache_data(ck, refresh)
+        if rv is not None:
+            return rv
+    rv = session.get(url, headers=headers)
+    if __can_cache__:
+        cache.set_gp_cache(ck, rv)
+    return rv
+
+def post_request_from_session(session=None, url='', refresh=False, headers=None, payload_=None):
+    """
+    don't want the session object as part o fthe cache key
+    """
+
+    if __can_cache__:
+        ck = cache.create_cache_key({'url':url, 'pl':payload_})
+        rv = cache.extract_cache_data(ck, refresh)
+        if rv is not None:
+            return rv
+    rv = session.post(url, headers=headers, data=json.dumps(payload_, cls=NpEncoder))
+    if __can_cache__:
+        cache.set_gp_cache(ck, rv)
+    return rv
