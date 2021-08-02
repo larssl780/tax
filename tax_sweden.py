@@ -15,17 +15,6 @@ import requests
 import tax_utils as tut
 
 
-def old_age_limit_year(tax_year=None):
-    """
-    over a certain age, the various rates etc change
-    """
-    if tax_year is None:
-        tax_year = pd.to_datetime('today').year
-
-    old_age_cutoff = datetime.date(tax_year, 1, 1) - pd.DateOffset(years=66)
-    return old_age_cutoff.year
-
-
 class SwedishTax:
     """
     to facilitate easy input
@@ -73,8 +62,7 @@ class SwedishTax:
         self._tax_url = "https://app.skatteverket.se/gateway-skut-skatteutrakning/skatteberakning-fysisk/rakna-ut-skatt"
 
         self._case_file = 'se_test_cases.ini'
-        # TODO: is this used anywhere?
-        self._session = requests.Session()
+        
         self._income_deduction = None
         self._job_deduction = None
 
@@ -113,6 +101,7 @@ class SwedishTax:
     def tax_url(self, value):
         assert isinstance(value, str), "URL needs to be a string"
         self._tax_url = value
+
 
     @property
     def tax_breakdown_dict(self):
@@ -296,8 +285,8 @@ class SwedishTax:
     def tax_parameters(self):
         return tut.tax_parameters(jurisdiction='SE', tax_year=self.tax_year)
 
-    def parameter(self, pname=''):
-        return self.tax_parameters.getfloat(pname)
+    def parameter(self, pname='', divisor=1):
+        return self.tax_parameters.getfloat(pname)/divisor
 
     @property
     def case_file(self):
@@ -305,7 +294,7 @@ class SwedishTax:
     @property
     def income_deduction(self):
       if self._income_deduction is None:
-        return  np.floor(min(max(self.parameter( 'skattereduktionForvarvsinkomst_procent') / 100 * ( self.taxable_income() - self.parameter('skattereduktionForvarvsinkomst_golv')), 0), self.parameter('skattereduktionForvarvsinkomst_tak')))
+        return  np.floor(min(max(self.parameter( 'skattereduktionForvarvsinkomst_procent', 100) * ( self.taxable_income() - self.parameter('skattereduktionForvarvsinkomst_golv')), 0), self.parameter('skattereduktionForvarvsinkomst_tak')))
       return self._income_deduction
       
     @income_deduction.setter
@@ -336,6 +325,13 @@ class SwedishTax:
     @property
     def funeral_fee(self):
       return np.floor(self.funeral_rate * self.taxable_income())
+
+    def old_age_limit_year(self):
+      """
+      over a certain age, the various rates etc change
+      """
+      old_age_cutoff = datetime.date(self.tax_year, 1, 1) - pd.DateOffset(years=66)
+      return old_age_cutoff.year
     def qualified_shares_income_taxation(self):
         """
         returns the extra income we need to add and then the extra capital_income we need to add
@@ -482,9 +478,8 @@ class SwedishTax:
         https://www.regeringen.se/4a6f30/contentassets/23ff11528fc54f918a144c067b44672e/ytterligare-skattesankningar-for-personer-over-65-ar.pdf
         """
 
-        # TODO: move limit year inside class def:
-        limit_year = old_age_limit_year(tax_year=self.tax_year)
-        # if birth_year > limit_year:
+        limit_year = self.old_age_limit_year()
+
         pbb = self.parameter('pris_bas_belopp')
         # TODO: Add these as parameters, will change
         if self.salary_rounded() <= 0.99 * pbb:
@@ -545,9 +540,9 @@ class SwedishTax:
         break this out into own function since it's quite finicky
         """
         # TODO: get limits and rates from params file
-        limit_year = old_age_limit_year(tax_year=self.tax_year)
+        limit_year = self.old_age_limit_year()
         # pdb.set_trace()
-        tax_rate = self.parameter('kommunalskatt_%s' % self.municipality) / 100
+        tax_rate = self.parameter('kommunalskatt_%s' % self.municipality, 100)
         pbb = self.parameter('pris_bas_belopp')
         if self.birth_year <= limit_year:
             if self.salary_rounded() <= 100e3:
@@ -580,9 +575,13 @@ class SwedishTax:
     def net_listed_funds_and_shares(self):
       return self.adjusted_attribute_value('listed_funds_and_shares_profit') - self.adjusted_attribute_value('listed_funds_and_shares_loss')
     def net_unlisted_funds_and_shares(self):
-      return self.unlisted_funds_profit - 0.7 * self.adjusted_attribute_value('unlisted_funds_loss')
+      return self.unlisted_funds_profit - self.parameter('olistad_forlust_avdrags_multipel') * self.adjusted_attribute_value('unlisted_funds_loss')
     def net_property(self):
-      return self.sale_private_property_profit * 22 / 30 - self.sale_private_property_loss * 0.5 + 0.9 * self.sale_commercial_property_profit - 0.63 * self.sale_commercial_property_loss
+      ret_val = self.sale_private_property_profit * self.parameter('vinst_avdrag_privat_fastighet_taljare') / self.parameter('vinst_avdrag_privat_fastighet_namnare') 
+      ret_val -= self.sale_private_property_loss * self.parameter('forlust_avdrag_privat_fastighet')
+      ret_val += self.parameter('vinst_avdrag_kommers_fastighet') * self.sale_commercial_property_profit
+      ret_val -= self.parameter('forlust_avdrag_kommers_fastighet') * self.sale_commercial_property_loss
+      return ret_val
 
     def capital_surplus_deficit(self):
         """
@@ -596,13 +595,13 @@ class SwedishTax:
         #  Forsaljning privatbostad (profit vs loss, net is 50% multipllier)
         #  Forsäljning näringsbostad (p vs l, net is 63%)
         """
-        # TODO: Move hardwires into parameter file
+        
         surplus_deficit = 0
         surplus_deficit += self.standard_income
         surplus_deficit += self.rental_income
         surplus_deficit += self.net_interest()
         if self.net_listed_funds_and_shares() < 0:
-            surplus_deficit += 0.7 * self.net_listed_funds_and_shares()
+            surplus_deficit += self.parameter('listade_instrument_forlust_avdrags_multipel') * self.net_listed_funds_and_shares()
         else:
             surplus_deficit += self.net_listed_funds_and_shares()
         
@@ -612,17 +611,15 @@ class SwedishTax:
 
         return surplus_deficit
 
-        # return {'net_interest': net_interest, 'net_listed_funds_and_shares': net_listed_funds_and_shares, 'net_unlisted_funds_and_shares': net_unlisted_funds_and_shares,
-        #         'net_property': net_property, 'surplus_deficit': surplus_deficit}
 
-    @staticmethod
-    def _skatte_reduktion(netto_underskott):
+
+    def _skatte_reduktion(self, netto_underskott):
         """
         helper function
         """
         # TODO: move to params
-        return np.floor(0.3 * min(100000, netto_underskott) +
-                        0.21 * max(netto_underskott - 100000, 0))
+        return np.floor(self.parameter('skatte_reduktion_forsta_niva') * min(self.parameter('tak_skattereduktion'), netto_underskott) +
+                        self.parameter('skatte_reduktion_andra_niva') * max(netto_underskott - self.parameter('tak_skattereduktion'), 0))
 
     def capital_income_tax(self, verbose=False):
         """
@@ -632,7 +629,7 @@ class SwedishTax:
         surplus_deficit = self.capital_surplus_deficit()
 
         cap_tax_reduction = 0
-        state_rate = self.parameter('statlig_skatt') / 100
+        state_rate = self.parameter('statlig_skatt', 100)
         is_surplus = True
         # pdb.set_trace()
         if surplus_deficit < 0:
@@ -653,19 +650,19 @@ class SwedishTax:
     def taxable_income(self):
       return np.floor(self.adjusted_attribute_value('salary') / 100) * 100 - self.calc_deduction(self.salary_rounded())
     def municipal_tax(self):
-      return np.floor(self.taxable_income() * self.parameter( 'kommunalskatt_%s' % self.municipality) / 100)
+      return np.floor(self.taxable_income() * self.parameter( 'kommunalskatt_%s' % self.municipality, 100))
     def salary_rounded(self):
       return np.floor(self.adjusted_attribute_value('salary') / 100) * 100
     def state_income_tax(self):
-      return self.parameter('statlig_inkomst_skatt') / 100 * max(self.taxable_income() - self.parameter('skiktgrans'), 0)
+      return self.parameter('statlig_inkomst_skatt', 100) * max(self.taxable_income() - self.parameter('skiktgrans'), 0)
     def absolute_pension_cutoff(self):
-      return (self.parameter('allman_pension_noll') / 100) * self.parameter('inkomst_bas_belopp')
+      return self.parameter('allman_pension_noll', 100) * self.parameter('inkomst_bas_belopp')
         # abs_pension_cap = pension_ceil_mult * inkomst_bas_belopp
     def absolute_pension_cap(self):
       return self.parameter('allman_pension_tak') * self.parameter('inkomst_bas_belopp')
     def pension(self):
       pension = 0 if self.adjusted_attribute_value('salary') < self.absolute_pension_cutoff() else min(
-            self.parameter('allman_pension_procent') / 100 * self.adjusted_attribute_value('salary'), self.absolute_pension_cap() * self.parameter('allman_pension_procent') / 100)
+            self.parameter('allman_pension_procent', 100) * self.adjusted_attribute_value('salary'), self.absolute_pension_cap() * self.parameter('allman_pension_procent') / 100)
 
       return np.floor(pension / 100) * 100
     def tax_reduction_cap(self):
@@ -673,7 +670,7 @@ class SwedishTax:
       return self.municipal_tax() + self.state_income_tax() - self.job_deduction - self.income_deduction - self.pension()
 
     def public_service_cost(self):
-      return min(self.parameter('public_service_avgift'), self.parameter('public_service_percent') / 100 * self.taxable_income())
+      return min(self.parameter('public_service_avgift'), self.parameter('public_service_percent', 100) * self.taxable_income())
     def tax(self, apply_rounding=True):
 
         if self.investor_deduction > self.parameter('max_investor_deduction'):
@@ -740,12 +737,12 @@ class SwedishTax:
         # total_tax ties with 'slutligSkatt' in the skatteverket calculator, but that's not what we actually end up paying,
         # this catches that
 
-        self.tax_breakdown_dict = {'slutligSkatt': total_tax - self.parameter('statlig_skatt') / 100 * self.int_inc_tax_withheld, 'kommunalInkomstskatt': self.municipal_tax(), 'statligInkomstskattKapitalinkomst': cap_tax, 'allmanPensionsavgift': self.pension(), 'skattereduktionAllmanPensionsavgift': pension_reduction,
+        self.tax_breakdown_dict = {'slutligSkatt': total_tax - self.parameter('statlig_skatt', 100)  * self.int_inc_tax_withheld, 'kommunalInkomstskatt': self.municipal_tax(), 'statligInkomstskattKapitalinkomst': cap_tax, 'allmanPensionsavgift': self.pension(), 'skattereduktionAllmanPensionsavgift': pension_reduction,
                                    'begravningsavgift': self.funeral_fee, 'publicServiceAvgift': self.public_service_cost(), 'skattereduktionArbetsinkomster': self.job_deduction, 'skattereduktionForvarvsinkomst': self.income_deduction,
                                    'statligInkomstskattForvarvsinkomst': self.state_income_tax(), 'overskottUnderskottKapital': cap_tax_basis, 'forvarvsinkomst': self.adjusted_attribute_value('salary'),
-                                   'faststalldForvarvsinkomst': self.salary_rounded(), 'beskattningsbarForvarvsinkomst': self.taxable_income(), 'grundavdrag': self.calc_deduction(), 'kommunalLandstingsSkattesats': self.parameter('kommunalskatt_%s' %self.municipality) / 100,
-                                   'skattereduktionUnderskottKapital': cap_tax_reduction, 'avdragenSkattPaKapital': self.parameter('statlig_skatt') / 100 * self.int_inc_tax_withheld}
-        return total_tax - self.parameter('statlig_skatt') / 100 * self.int_inc_tax_withheld
+                                   'faststalldForvarvsinkomst': self.salary_rounded(), 'beskattningsbarForvarvsinkomst': self.taxable_income(), 'grundavdrag': self.calc_deduction(), 'kommunalLandstingsSkattesats': self.parameter('kommunalskatt_%s' %self.municipality, 100) ,
+                                   'skattereduktionUnderskottKapital': cap_tax_reduction, 'avdragenSkattPaKapital': self.parameter('statlig_skatt', 100)  * self.int_inc_tax_withheld}
+        return total_tax - self.parameter('statlig_skatt', 100) * self.int_inc_tax_withheld
 
     def tax_ties_with_config(
             self, do_all=False, atol=1e-8, rtol=1e-5):
@@ -1047,7 +1044,7 @@ class SwedishTax:
         slutlig_skatt = resp.query("item == 'slutligSkatt'").value.item()
 
         return slutlig_skatt - \
-            self.parameter('statlig_skatt') * self.int_inc_tax_withheld / 100
+            self.parameter('statlig_skatt', 100) * self.int_inc_tax_withheld
 
     def parsed_official_response(self, refresh=False, session=None):
         """
