@@ -327,6 +327,12 @@ def get_request_from_session(session=None, url='', refresh=False, headers=None):
         cache.set_gp_cache(ck, rv)
     return rv
 
+def value_is_numeric_type(X):
+    X = np.asanyarray(X)
+    
+    if (X.dtype.char in np.typecodes['AllFloat']) or (X.dtype.char in np.typecodes['Integer']):
+        return True
+    return False
 def post_request_from_session(session=None, url='', refresh=False, headers=None, payload_=None):
     """
     don't want the session object as part o fthe cache key
