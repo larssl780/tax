@@ -8,6 +8,7 @@ import configparser
 import numpy as np
 import pandas as pd
 import requests
+
 from tqdm import tqdm
 import tax_utils as tut
 
@@ -1100,11 +1101,11 @@ class NorwegianTax:
         self._wealth_fondskonto_shares = wealth_fondskonto_shares
         self._case_file = 'no_test_cases.ini'
         self._session = requests.Session()
-        # TODO: Why are we hardwiring the no test cases below when we have already set it? Fragile...
+
         if case_idx is not None:
             self._case_idx = case_idx
             inputs = tut.inputs_for_case_number(
-                case_idx, case_file='no_test_cases.ini', include_correct_tax=False)
+                case_idx, case_file=self._case_file, include_correct_tax=False)
 
             for field, val in inputs.items():
                 if hasattr(self, field):
@@ -1255,6 +1256,8 @@ class NorwegianTax:
 
     @property
     def case_file(self):
+        assert os.path.exists(
+            self._case_file), "'%s' doesn't exist, not able to run any tests!" % self._case_file
         return self._case_file
 
     @property
@@ -1507,11 +1510,14 @@ class NorwegianTax:
 
     @property
     def pension_deduction_raw(self):
-      return max(min(self.pension * self.parameter('pension_deduction_multiplier'),
-                                    self.parameter('max_pension_deduction')), self.parameter('min_pension_deduction'))
+        return max(min(self.pension * self.parameter('pension_deduction_multiplier'),
+                       self.parameter('max_pension_deduction')), self.parameter('min_pension_deduction'))
+
     @property
     def income_deduction_raw(self):
-      return max( min( self.salary * self.parameter('deduction_multiplier'), self.parameter('max_deduction_limit')), self.parameter('min_deduction_limit'))
+        return max(min(self.salary * self.parameter('deduction_multiplier'),
+                       self.parameter('max_deduction_limit')), self.parameter('min_deduction_limit'))
+
     @property
     def pension_and_income_minimum_deduction(self):
         """
@@ -1523,11 +1529,11 @@ class NorwegianTax:
 
         # you can't deduct more than what you earn:
         income_deduction = min(self.income_deduction_raw, self.salary)
-        
+
         combo_deduction = self.pension_deduction_raw + \
             max(min(self.salary * self.parameter('deduction_multiplier'), self.parameter('max_deduction_limit')),
                 min(self.parameter('min_pension_deduction'), self.salary, self.pension))
-        
+
         return min(max(income_deduction, combo_deduction),
                    self.parameter('max_deduction_limit'))
 
