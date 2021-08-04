@@ -18,11 +18,13 @@ import pdb
 import copy
 import datetime
 from functools import lru_cache
+import os
 from tqdm import tqdm
 import numpy as np
 import pandas as pd
 import requests
 import tax_utils as tut
+
 
 
 class SwedishTax:
@@ -232,6 +234,8 @@ class SwedishTax:
 
     @municipality.setter
     def municipality(self, value):
+        params = tut.tax_parameters(jurisdiction='SE', tax_year=self.tax_year)
+        assert 'kommunalskatt_%s'%value.lower() in dict(params), "Tax rate for '%s' not implemented yet!"%value
         self._municipality = value
 
     @property
@@ -333,13 +337,15 @@ class SwedishTax:
 
     @lru_cache(maxsize=None)
     def parameter(self, pname='', divisor=1):
-        # print("Getting parameter = '%s'"%pname)
-        # if not len(pname):
-        #   pdb.set_trace()
-        return self.tax_parameters.getfloat(pname) / divisor
+        ret_val = self.tax_parameters.getfloat(pname)
+
+        if ret_val is None:
+          raise Exception("No such parameter ('%s')!"%(pname))
+        return ret_val/divisor
 
     @property
     def case_file(self):
+        assert os.path.exists(self._case_file), "'%s' doesn't exist!"%self._case_file
         return self._case_file
 
     @property
