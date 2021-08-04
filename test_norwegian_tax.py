@@ -11,7 +11,7 @@ def test_all_cases(_class=tax.NorwegianTax, atol=1e-8, rtol=1e-5):
     obj = _class()
     rv = obj.tax_ties_with_config(do_all=True, atol=atol, rtol=rtol)
     print('rv = ', rv)
-    if rv != True:
+    if rv is not True:
     	return pytest.fail("Test failed on these cases: %s"%(','.join(map(str,rv))))
     else:
 
