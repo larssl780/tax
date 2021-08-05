@@ -1,3 +1,28 @@
+"""
+
+This is the base class for all the jurisdictions
+
+==attributes that the inheriting class needs to implement==
+
+* payload (to pass to the web request)
+* tax_url 
+* tax()
+* official_tax()
+* parsed_official_response - parse the response from the web request into a dataframe or such-like - this will then form the basis for the official_tax
+
+
+
+==files needed==
+* [jurisdiction]_test_cases.ini
+* eg. test_norwegian_tax.py (test-file that runs through the cases specified in the .ini file)
+
+
+==common parameter file==
+
+* taxes.ini (this contains all the constants for the various jurisdictions and tax years)
+
+
+"""
 import os
 from functools import lru_cache
 import numpy as np
@@ -113,15 +138,15 @@ class TaxCalculator:
 
     def official_tax(self, session=None, refresh=False):
         return 0
-
+    def config_tax(self):
+      return tut.config_tax(self.case_idx, case_file=self.case_file)
     def tax_ties_with_config(
-            self, do_all=False, atol=1e-8, rtol=1e-5):
+            self, do_all=False, atol=1e-8, rtol=1e-5, verbose=False):
         """
         Check that the computed tax ties with the tax stored in the config file
         """
         if not do_all:
-            return np.allclose(tut.config_tax(
-                self.case_idx, case_file=self.case_file), self.tax())
+            return np.allclose(self.config_tax(), self.tax())
 
         case_numbers = tut.all_case_numbers(case_file=self.case_file)
         # print(case_numbers)
@@ -135,12 +160,14 @@ class TaxCalculator:
             # pdb.set_trace()
             # print("After setting case idx, it's now %d"%self.case_idx)
             observed.append(self.tax())
-            expected.append(
-                tut.config_tax(
-                    self.case_idx,
-                    case_file=self.case_file))
+            expected.append(self.config_tax())
 
         # pdb.set_trace()
+        if verbose:
+            print("==Expected==")
+            print(expected)
+            print("==Observed==")
+            print(observed)
         if not np.allclose(observed, expected, atol=atol, rtol=rtol):
             exp = np.array(expected)
             obs = np.array(observed)
@@ -151,6 +178,7 @@ class TaxCalculator:
             return bad_idx
 
         print("All tests passed!")
+
         return True
 
     def tax_ties_with_web(self, do_all=False, atol=1e-8,
@@ -218,3 +246,5 @@ class TaxCalculator:
                 refresh=refresh,
                 session=session)
         return res
+    def __repr__(self):
+      return '%s - %d'%(self.jurisdiction, self.case_idx)

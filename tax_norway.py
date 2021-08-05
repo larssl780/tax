@@ -11,7 +11,7 @@ import requests
 
 from tqdm import tqdm
 import tax_utils as tut
-
+from tax_calculator import TaxCalculator
 
 def tax_url(tax_year):
     """
@@ -1049,7 +1049,7 @@ def compare_calculated_tax_vs_correct_tax(
                         'component', 'value_calc', 'value_corr', 'value_error', 'value_tol', 'test_pass'])
 
 
-class NorwegianTax:
+class NorwegianTax(TaxCalculator):
     """
     to facilitate easy input
     add random text to trigger a code push...
@@ -1058,11 +1058,16 @@ class NorwegianTax:
     def __init__(self, salary=0, birth_year=1978, tax_year=None, gains_from_sale_fondskonto_share_comp=0, gains_from_sale_fondskonto_interest_comp=0, gains_from_sale_of_shares_ask=0, property_taxable_value=0, pension=0, pension_months=12, pension_percent=100, property_sale_proceeds=0, rental_income=0, property_sale_loss=0, bank_deposits=0,
                  bank_interest_income=0, interest_expenses=0, dividends=0, mutual_fund_dividends=0, gains_from_sale_of_shares=0, mutual_fund_interest_comp_profit=0, mutual_fund_interest_comp_profit_combi_fund=0, mutual_fund_share_comp_profit=0, mutual_fund_share_comp_profit_combi_fund=0, loss_fondskonto_shares=0, loss_fondskonto_interest=0, loss_ask_sale=0,
                  loss_from_sale_of_shares=0, loss_from_sale_mutual_fund_share_comp=0, loss_from_sale_mutual_fund_share_comp_combi_fund=0, loss_from_sale_mutual_fund_interest_comp=0,
-                 loss_from_sale_mutual_fund_interest_comp_combi_fund=0, mutual_fund_wealth_share_comp=0, mutual_fund_wealth_interest_comp=0, wealth_in_shares=0, wealth_in_unlisted_shares=0, wealth_ask_cash=0, wealth_ask_shares=0, wealth_fondskonto_cash_interest=0, wealth_fondskonto_shares=0, case_idx=None):
+                 loss_from_sale_mutual_fund_interest_comp_combi_fund=0, mutual_fund_wealth_share_comp=0, mutual_fund_wealth_interest_comp=0, wealth_in_shares=0, wealth_in_unlisted_shares=0, wealth_ask_cash=0, wealth_ask_shares=0, wealth_fondskonto_cash_interest=0, wealth_fondskonto_shares=0, municipality='0402', case_idx=None):
 
         self._salary = salary
         self._birth_year = birth_year
-        self._tax_year = tax_year
+        # self._tax_year = tax_year
+
+        if tax_year is None:
+          tax_year = pd.to_datetime('today').year
+
+        tax_url = "https://skatteberegning.app.skatteetaten.no/%d" % tax_year
         self._gains_from_sale_fondskonto_share_comp = gains_from_sale_fondskonto_share_comp
         self._gains_from_sale_fondskonto_interest_comp = gains_from_sale_fondskonto_interest_comp
         self._gains_from_sale_of_shares_ask = gains_from_sale_of_shares_ask
@@ -1099,18 +1104,19 @@ class NorwegianTax:
         self._wealth_ask_shares = wealth_ask_shares
         self._wealth_fondskonto_cash_interest = wealth_fondskonto_cash_interest
         self._wealth_fondskonto_shares = wealth_fondskonto_shares
-        self._case_file = 'no_test_cases.ini'
-        self._session = requests.Session()
+        self._municipality = municipality
+        # self._case_file = 'no_test_cases.ini'
+        # self._session = requests.Session()
+        super().__init__(jurisdiction='NOR', tax_year=tax_year, tax_url=tax_url, case_idx=case_idx)
+        # if case_idx is not None:
+        #     self._case_idx = case_idx
+        #     inputs = tut.inputs_for_case_number(
+        #         case_idx, case_file=self._case_file, include_correct_tax=False)
 
-        if case_idx is not None:
-            self._case_idx = case_idx
-            inputs = tut.inputs_for_case_number(
-                case_idx, case_file=self._case_file, include_correct_tax=False)
-
-            for field, val in inputs.items():
-                if hasattr(self, field):
-                    # print('%s: %s'%(field, str(val)))
-                    setattr(self, field, val)
+        #     for field, val in inputs.items():
+        #         if hasattr(self, field):
+        #             # print('%s: %s'%(field, str(val)))
+        #             setattr(self, field, val)
 
     @staticmethod
     def tax_payable(basis=0, rate=0, limit=0, deduction=0,
@@ -1131,7 +1137,12 @@ class NorwegianTax:
     @salary.setter
     def salary(self, value):
         self._salary = value
-
+    @property
+    def municipality(self):
+      return self._municipality
+    @municipality.setter
+    def municipality(self, value):
+      self._municipality = value
     @property
     def birth_year(self):
         return self._birth_year
@@ -1140,15 +1151,15 @@ class NorwegianTax:
     def birth_year(self, value):
         self._birth_year = value
 
-    @property
-    def session(self):
-        return self._session
+    # @property
+    # def session(self):
+    #     return self._session
 
-    @property
-    def tax_year(self):
-        if self._tax_year is None:
-            return pd.to_datetime('today').year
-        return self._tax_year
+    # @property
+    # def tax_year(self):
+    #     if self._tax_year is None:
+    #         return pd.to_datetime('today').year
+    #     return self._tax_year
 
     @property
     def gains_from_sale_fondskonto_share_comp(self):
@@ -1254,11 +1265,11 @@ class NorwegianTax:
     def interest_expenses(self, value):
         self._interest_expenses = value
 
-    @property
-    def case_file(self):
-        assert os.path.exists(
-            self._case_file), "'%s' doesn't exist, not able to run any tests!" % self._case_file
-        return self._case_file
+    # @property
+    # def case_file(self):
+    #     assert os.path.exists(
+    #         self._case_file), "'%s' doesn't exist, not able to run any tests!" % self._case_file
+    #     return self._case_file
 
     @property
     def dividends(self):
@@ -1444,28 +1455,28 @@ class NorwegianTax:
     def wealth_fondskonto_shares(self, value):
         self._wealth_fondskonto_shares = value
 
-    @property
-    def case_idx(self):
-        return self._case_idx
+    # @property
+    # def case_idx(self):
+    #     return self._case_idx
 
-    @case_idx.setter
-    def case_idx(self, value):
-        # print("Trying to set case_idx to %s" % value)
-        if value is not None:
-            self._case_idx = value
-            self.__init__()
-            inputs = tut.inputs_for_case_number(
-                value, case_file=self.case_file, include_correct_tax=False)
+    # @case_idx.setter
+    # def case_idx(self, value):
+    #     # print("Trying to set case_idx to %s" % value)
+    #     if value is not None:
+    #         self._case_idx = value
+    #         self.__init__()
+    #         inputs = tut.inputs_for_case_number(
+    #             value, case_file=self.case_file, include_correct_tax=False)
 
-            for field, val in inputs.items():
-                if hasattr(self, field):
-                    # print('%s: %s'%(field, str(val)))
-                    setattr(self, field, val)
-        # self._case_idx = value
+    #         for field, val in inputs.items():
+    #             if hasattr(self, field):
+    #                 # print('%s: %s'%(field, str(val)))
+    #                 setattr(self, field, val)
+    #     # self._case_idx = value
 
-    @property
-    def tax_parameters(self):
-        return tut.tax_parameters(jurisdiction='NO', tax_year=self.tax_year)
+    # @property
+    # def tax_parameters(self):
+    #     return tut.tax_parameters(jurisdiction='NO', tax_year=self.tax_year)
 
     @property
     def share_related_income(self):
@@ -1757,69 +1768,482 @@ class NorwegianTax:
 
         tut.display_df(frame)
         return orig_df
-
-    def tax_ties_with_config(
-            self, do_all=False, atol=1e-8, rtol=1e-5):
-        if not do_all:
-            return np.allclose(tut.config_tax(
-                self.case_idx, case_file=self.case_file), self.tax())
-
-        case_numbers = tut.all_case_numbers(case_file=self.case_file)
-        observed = []
-        expected = []
-        for case_idx in tqdm(case_numbers):
-            # print("working on case number %d" % case_idx)
-            setattr(self, 'case_idx', case_idx)
-            # self.case_idx =
-            # pdb.set_trace()
-            observed.append(self.tax())
-            expected.append(
-                tut.config_tax(
-                    self.case_idx,
-                    case_file=self.case_file))
-
+    def parsed_official_response(self, refresh=False, session=None):
+        resp = self.query_web_for_tax_results(refresh=refresh, session=session)
         # pdb.set_trace()
-        if not np.allclose(observed, expected, atol=atol, rtol=rtol):
-            exp = np.array(expected)
-            obs = np.array(observed)
-            good_idx = np.abs(exp - obs) <= (atol + rtol * np.abs(obs))
+        raw = resp.json()
+        data = raw['hovedperson']['beregnetSkattV3']['skattOgAvgift']
+
+        correct_tax = raw['hovedperson']['beregnetSkattV3']['informasjonTilSkattelister']['beregnetSkatt']
+
+        # if we don't have any wealth, we won't have those wealth tax keys in
+        # data, seems we don't have deduction keys either?
+        items = [
+            'inntektsskattTilKommune',
+            'inntektsskattTilFylkeskommune',
+            'fellesskatt',
+            'trinnskatt',
+            'sumTrygdeavgift',
+            'formueskattTilStat',
+            'formueskattTilKommune']
+
+        missed_items = list(set(data.keys()) - set(items))
+
+        deductions = raw['hovedperson']['beregnetSkattV3'].get(
+            'sumSkattefradrag', {}).get('beloep', 0)
+
+        if len(missed_items) > 0:
+            print("Did not use these items: %s" % (','.join(missed_items)))
             # pdb.set_trace()
-            bad_idx = np.where(~good_idx)[0]
-            print("Some checks failed!")
-            return bad_idx
 
-        print("All tests passed!")
-        return True
+        not_in_res = list(set(items) - set(data.keys()))
 
-    def tax_ties_with_web(self, do_all=False, atol=1e-8,
-                          rtol=1e-5, refresh=False):
-        """
-        this will (obviously hit the tax authority web server)
-        """
-        if not do_all:
-            return np.allclose(self.true_tax_data_frame().query(
-                "tax_type == 'total'").tax.sum(), self.tax())
+        if len(not_in_res) > 0:
+            print(
+                "Did not find these items in response: %s" %
+                (','.join(not_in_res)))
+        out = [['Salary', self.salary, 0], ['', 0, 0]]
+        for item in items:
+            try:
+                out.append([item, data[item]['grunnlag'], data[item]['beloep']])
+            except Exception:
+                # print(err.msg)
+                out.append([item, 0, 0])
 
-        case_numbers = tut.all_case_numbers(case_file=self.case_file)
-        observed = []
-        expected = []
-        with requests.Session() as sesh:
-            for case_idx in tqdm(case_numbers):
-                setattr(self, 'case_idx', case_idx)
-                observed.append(self.tax())
-                expected.append(
-                    self.true_tax_data_frame(
-                        refresh=refresh,
-                        session=sesh).query("tax_type == 'total'").tax.sum())
+        if deductions != 0:
+            out.append(['Sum skattefradrag', 0, -deductions])
 
-        if not np.allclose(observed, expected, atol=atol, rtol=rtol):
-            exp = np.array(expected)
-            obs = np.array(observed)
+        frame = pd.DataFrame(out, columns=['tax_type', 'tax_basis', 'tax'])
+        assert abs(frame.tax.sum() - correct_tax) < 1e-4, "Estimated tax differs from the true tax! (%s vs %s)" % (
+            tut.big_fmt(frame.tax.sum()), tut.big_fmt(correct_tax))
+        frame = frame.append({'tax_type': 'total',
+                              'tax_basis': 0,
+                              'tax': frame.tax.sum()},
+                             ignore_index=True)
+        return frame
+    def official_tax(self, session=None, refresh=False):
+        frame = self.parsed_official_response(refresh=refresh, session=session)
+        
+        # pdb.set_trace()
+        return frame.query("tax_type == 'total'").tax.sum()
+        # return frame
+    def payload(self):
+        age = pd.to_datetime('today').year - self.birth_year
 
-            good_idx = np.abs(exp - obs) <= (atol + rtol * np.abs(obs))
-            bad_idx = np.where(~good_idx)[0]
+        base = {'skatteberegningsgrunnlagV6': {'skattegrunnlagsobjekt':
+                                               [{'beloep': self.salary, 'brukIKalkulator': 'BrukesDirekte', 'id': 'vF4DxZz4O', 'ledetekst': 'Lønn, naturalytelser mv.',
+                                                 'postnummer': '2.1.1', 'sorteringsNoekkel': '020101', 'tekniskNavn': 'loennsinntektNaturalytelseMv', 'temakategori': 'arbeidTrygdPensjon', 'temaunderkategori': 'loennsinntekter', 'type': 'ske.fastsetting.skatt.skattegrunnlag.v2_0.SkattegrunnlagsobjektXml'},
+                                                {'beloep': self.pension, 'brukIKalkulator': 'BrukesDirekte', 'id': 'vF4DxZz4O', 'ledetekst': 'Lønn, naturalytelser mv.',
+                                                 'postnummer': '2.2.1', 'sorteringsNoekkel': '020201', 'tekniskNavn': 'alderspensjonFraFolketrygden', 'temakategori': 'arbeidTrygdPensjon', 'temaunderkategori': 'pensjonTrygdInntekt', 'type': 'ske.fastsetting.skatt.skattegrunnlag.v2_0.SkattegrunnlagsobjektXml',
+                                                 'antallMaanederMedPensjon': self.pension_months, 'gjennomsnittligVektetPensjonsgrad': self.pension_percent},
+                                                   {
+                                                   'beloep': self.bank_interest_income,
+                                                   'brukIKalkulator': 'BrukesDirekte',
+                                                   'id': 'RCc8osmg4y',
+                                                   'ledetekst': 'Renter på bankinnskudd',
+                                                   'postnummer': '3.1.1',
+                                                   'sorteringsNoekkel': '030101',
+                                                   'tekniskNavn': 'opptjenteRenter',
+                                                   'temakategori': 'bankLaanForsikring',
+                                                   'temaunderkategori': 'bankInntekt',
+                                                   'type': 'ske.fastsetting.skatt.skattegrunnlag.v2_0.SkattegrunnlagsobjektXml'},
+                                                   {'beloep': self.interest_expenses,
+                                                    'brukIKalkulator': 'BrukesDirekte',
+                                                    'id': 'fLHS8kFE8m',
+                                                    'ledetekst': 'Gjeldsrenter',
+                                                    'postnummer': '3.3.1',
+                                                    'sorteringsNoekkel': '030301',
+                                                    'tekniskNavn': 'paaloepteRenter',
+                                                    'temakategori': 'bankLaanForsikring',
+                                                    'temaunderkategori': 'bankLaanForsikringFradrag',
+                                                    'type': 'ske.fastsetting.skatt.skattegrunnlag.v2_0.SkattegrunnlagsobjektXml'},
 
-            print("Some checks failed!")
-            return bad_idx
-        print("All tests passed!")
-        return True
+                                                   {'beloep': self.property_taxable_value,
+                                                    'brukIKalkulator': 'BrukesDirekte',
+                                                    'id': '4ZImlzCPBc',
+                                                    'ledetekst': 'Formuesverdi primærbolig',
+                                                    'postnummer': '4.3.2',
+                                                    'sorteringsNoekkel': '040302',
+                                                    'tekniskNavn': 'formuesverdiForPrimaerbolig',
+                                                    'temakategori': 'boligOgEiendeler',
+                                                    'temaunderkategori': 'boligEindelerFormue',
+                                                    'type': 'ske.fastsetting.skatt.skattegrunnlag.v2_0.SkattegrunnlagsobjektXml'},
+
+                                                   {"ledetekst": "Gevinst ved salg av eiendom",
+                                                    "brukIKalkulator": "BrukesDirekte",
+                                                    "temakategori": "boligOgEiendeler",
+                                                    "sorteringsNoekkel": "020804",
+                                                    "beloep": self.property_sale_proceeds,
+                                                    "autofokus": True,
+                                                    "postnummer": "2.8.4",
+                                                    "tekniskNavn": "gevinstVedRealisasjonAvFastEiendomMv",
+                                                    "temaunderkategori": "boligEindelerInntekt",
+                                                    "type": "ske.fastsetting.skatt.skattegrunnlag.v2_0.SkattegrunnlagsobjektXml",
+                                                    "id": "Dstg2w_w1"},
+                                                   {
+                                                   "ledetekst": "Tap ved salg av fast eiendom",
+                                                   "brukIKalkulator": "BrukesDirekte",
+                                                   "temakategori": "boligOgEiendeler",
+                                                   "sorteringsNoekkel": "030306",
+                                                   "beloep": self.property_sale_loss,
+                                                   "autofokus": True,
+                                                   "postnummer": "3.3.6",
+                                                   "tekniskNavn": "fradragsberettigetTapVedRealisasjonAvFastEiendom",
+                                                   "temaunderkategori": "boligEindelerFradrag",
+                                                   "type": "ske.fastsetting.skatt.skattegrunnlag.v2_0.SkattegrunnlagsobjektXml",
+                                                   "id": "4Go51ns0D"},
+                                                   {
+                                                   "ledetekst": "Utleie av fast eiendom",
+                                                   "brukIKalkulator": "BrukesDirekte",
+                                                   "temakategori": "boligOgEiendeler",
+                                                   "sorteringsNoekkel": "020802",
+                                                   "beloep": self.rental_income,
+                                                   "autofokus": True,
+                                                   "postnummer": "2.8.2",
+                                                   "tekniskNavn": "nettoinntektVedUtleieAvFastEiendomMv",
+                                                   "temaunderkategori": "boligEindelerInntekt",
+                                                   "type": "ske.fastsetting.skatt.skattegrunnlag.v2_0.SkattegrunnlagsobjektXml",
+                                                   "id": "in6py-mIs"},
+                                                   {'beloep': self.bank_deposits,
+                                                    'brukIKalkulator': 'BrukesDirekte',
+                                                    'id': '3JUkH5xoKm',
+                                                    'ledetekst': 'Bankinnskudd',
+                                                    'postnummer': '4.1.1',
+                                                    'sorteringsNoekkel': '040101',
+                                                    'tekniskNavn': 'innskudd',
+                                                    'temakategori': 'bankLaanForsikring',
+                                                    'temaunderkategori': 'bankLaanForsikringFormue',
+                                                    'type': 'ske.fastsetting.skatt.skattegrunnlag.v2_0.SkattegrunnlagsobjektXml'},
+                                                   {'beloep': '',
+                                                    'brukIKalkulator': 'BrukesDirekte',
+                                                    'id': '29Ppf_wkm5',
+                                                    'ledetekst': 'Gjeld',
+                                                    'postnummer': '4.8.1',
+                                                    'sorteringsNoekkel': '040801',
+                                                    'tekniskNavn': 'gjeld',
+                                                    'temakategori': 'bankLaanForsikring',
+                                                    'temaunderkategori': 'bankLaanForsikringGjeld',
+                                                    'type': 'ske.fastsetting.skatt.skattegrunnlag.v2_0.SkattegrunnlagsobjektXml'},
+
+                                                   # this seems to be the equivalent of "kapitalförsäkring" in
+                                                   # Sweden?
+                                                   {'autofokus': True,
+                                                    'beloep': self.gains_from_sale_fondskonto_share_comp,
+                                                    'brukIKalkulator': 'BrukesDirekte',
+                                                    'id': 'cMr5mI4QB',
+                                                    'ledetekst': 'Gevinst ved salg av fondskonto aksjedel',
+                                                    'postnummer': '3.1.4',
+                                                    'sorteringsNoekkel': '030104',
+                                                    'tekniskNavn': 'gevinstVedRealisasjonAvOgUttakFraAksjedelIFondskonto',
+                                                    'temakategori': 'finans',
+                                                    'temaunderkategori': 'aksjeInntekt',
+                                                    'type': 'ske.fastsetting.skatt.skattegrunnlag.v2_0.SkattegrunnlagsobjektXml'},
+                                                   {"ledetekst": "Gevinst ved salg av fondskonto rentedel",
+                                                    "brukIKalkulator": "BrukesDirekte",
+                                                    "temakategori": "finans",
+                                                    "sorteringsNoekkel": "030104",
+                                                    "beloep": self.gains_from_sale_fondskonto_interest_comp,
+                                                    "autofokus": True,
+                                                    "postnummer": "3.1.4",
+                                                    "tekniskNavn": "gevinstVedRealisasjonAvOgUttakFraRentedelIFondskonto",
+                                                    "temaunderkategori": "finansAnnetInntekt",
+                                                    "type": "ske.fastsetting.skatt.skattegrunnlag.v2_0.SkattegrunnlagsobjektXml",
+                                                    "id": "2HEy2XMhn"},
+                                                   # the below must be an
+                                                   # rarely used case? Leave it
+                                                   # for now
+                                                   {
+                                                   'autofokus': True,
+                                                   'beloep': self.gains_from_sale_of_shares,
+                                                   'brukIKalkulator': 'BrukesDirekte',
+                                                   'id': 'XJsESPp3E',
+                                                   'ledetekst': 'Gevinst ved salg av aksjer fra Aksjeoppgaven/utenlandske aksjer i norske banker',
+                                                   'postnummer': '3.1.8',
+                                                   'sorteringsNoekkel': '030108',
+                                                   'tekniskNavn': 'gevinstVedRealisasjonAvAksje',
+                                                   'temakategori': 'finans',
+                                                   'temaunderkategori': 'aksjeInntekt',
+                                                   'type': 'ske.fastsetting.skatt.skattegrunnlag.v2_0.SkattegrunnlagsobjektXml'},
+                                                   # this is ask I believe? Or is it any sale of shares? Presumably,
+                                                   # because you punch in the net gains, so could already be taking
+                                                   # the ask-rules into account (postnummer is important, that
+                                                   # identifies the item and
+                                                   # its explanation)
+                                                   {
+                                                   "ledetekst": "Gevinst salg fra aksjesparekonto",
+                                                   "brukIKalkulator": "BrukesDirekte",
+                                                   "temakategori": "finans",
+                                                   "sorteringsNoekkel": "030108",
+                                                   "beloep": self.gains_from_sale_of_shares_ask,
+                                                   "autofokus": True,
+                                                   "postnummer": "3.1.8",
+                                                   "tekniskNavn": "gevinstVedRealisasjonAvAksjesparekonto",
+                                                   "temaunderkategori": "aksjeInntekt",
+                                                   "type": "ske.fastsetting.skatt.skattegrunnlag.v2_0.SkattegrunnlagsobjektXml",
+                                                   "id": "spyaYFHUh"},
+                                                   {"ledetekst": "Tap fondskonto aksjedel",
+                                                    "brukIKalkulator": "BrukesDirekte",
+                                                    "temakategori": "finans",
+                                                    "sorteringsNoekkel": "030307",
+                                                    "beloep": self.loss_fondskonto_shares,
+                                                    "autofokus": True,
+                                                    "postnummer": "3.3.7",
+                                                    "tekniskNavn": "tapVedRealisajonAvOgUttakFraAksjedelIFondskonto",
+                                                    "temaunderkategori": "aksjeFradrag",
+                                                    "type": "ske.fastsetting.skatt.skattegrunnlag.v2_0.SkattegrunnlagsobjektXml",
+                                                    "id": "vt-OPCZkD"},
+                                                   {
+                                                   "ledetekst": "Tap salg aksjesparekonto",
+                                                   "brukIKalkulator": "BrukesDirekte",
+                                                   "temakategori": "finans",
+                                                   "sorteringsNoekkel": "030308",
+                                                   "beloep": self.loss_ask_sale,
+                                                   "autofokus": True,
+                                                   "postnummer": "3.3.8",
+                                                   "tekniskNavn": "tapVedRealisasjonAvAksjesparekonto",
+                                                   "temaunderkategori": "aksjeFradrag",
+                                                   "type": "ske.fastsetting.skatt.skattegrunnlag.v2_0.SkattegrunnlagsobjektXml",
+                                                   "id": "E5WH7AuF-"},
+                                                   {"ledetekst": "Tap ved salg av aksjer fra aksjeoppgaven/Tap utenlandske aksjer fra norske banker",
+                                                    "brukIKalkulator": "BrukesDirekte",
+                                                    "temakategori": "finans",
+                                                    "sorteringsNoekkel": "030308",
+                                                    "beloep": self.loss_from_sale_of_shares,
+                                                    "autofokus": True,
+                                                    "postnummer": "3.3.8",
+                                                    "tekniskNavn": "tapVedRealisasjonAvAksje",
+                                                    "temaunderkategori": "aksjeFradrag",
+                                                    "type": "ske.fastsetting.skatt.skattegrunnlag.v2_0.SkattegrunnlagsobjektXml",
+                                                    "id": "hGkhnFQoz"},
+                                                   {
+                                                   "ledetekst": "Tap salg verdipapirfond aksjedel",
+                                                   "brukIKalkulator": "BrukesDirekte",
+                                                   "temakategori": "finans",
+                                                   "sorteringsNoekkel": "030309",
+                                                   "beloep": self.loss_from_sale_mutual_fund_share_comp,
+                                                   "autofokus": True,
+                                                   "postnummer": "3.3.9",
+                                                   "tekniskNavn": "tapVedRealisasjonAvVerdipapirfondsandelKnyttetTilAksjedel",
+                                                   "temaunderkategori": "aksjeFradrag",
+                                                   "type": "ske.fastsetting.skatt.skattegrunnlag.v2_0.SkattegrunnlagsobjektXml",
+                                                   "id": "yQRUlIE-X"},
+                                                   {"ledetekst": "Tap salg verdipapirfond aksjedel kombifond",
+                                                    "brukIKalkulator": "BrukesDirekte",
+                                                    "temakategori": "finans",
+                                                    "sorteringsNoekkel": "030309",
+                                                    "beloep": self.loss_from_sale_mutual_fund_share_comp_combi_fund,
+                                                    "autofokus": True,
+                                                    "postnummer": "3.3.9",
+                                                    "tekniskNavn": "tapVedRealisasjonAvVerdipapirfondsandelIKombifondKnyttetTilAksjedel",
+                                                    "temaunderkategori": "aksjeFradrag",
+                                                    "type": "ske.fastsetting.skatt.skattegrunnlag.v2_0.SkattegrunnlagsobjektXml",
+                                                    "id": "XLZ4CAWOS"},
+                                                   {"ledetekst": "Tap fondskonto rentedel",
+                                                    "brukIKalkulator": "BrukesDirekte",
+                                                    "temakategori": "finans",
+                                                    "sorteringsNoekkel": "030307",
+                                                    "beloep": self.loss_fondskonto_interest,
+                                                    "autofokus": True,
+                                                    "postnummer": "3.3.7",
+                                                    "tekniskNavn": "tapVedRealisasjonAvOgUttakFraRentedelIFondskonto",
+                                                    "temaunderkategori": "finansAnnetFradrag",
+                                                    "type": "ske.fastsetting.skatt.skattegrunnlag.v2_0.SkattegrunnlagsobjektXml",
+                                                    "id": "_RMwr8GX4"},
+                                                   {"ledetekst": "Tap salg verdipapirfond rentedel",
+                                                    "brukIKalkulator": "BrukesDirekte",
+                                                    "temakategori": "finans",
+                                                    "sorteringsNoekkel": "030309",
+                                                    "beloep": self.loss_from_sale_mutual_fund_interest_comp,
+                                                    "autofokus": True,
+                                                    "postnummer": "3.3.9",
+                                                    "tekniskNavn": "tapVedRealisasjonAvVerdipapirfondsandelKnyttetTilRentedel",
+                                                    "temaunderkategori": "finansAnnetFradrag",
+                                                    "type": "ske.fastsetting.skatt.skattegrunnlag.v2_0.SkattegrunnlagsobjektXml",
+                                                    "id": "yt3gvatEk"},
+                                                   {
+                                                   "ledetekst": "Tap salg verdipapirfond rentedel kombifond",
+                                                   "brukIKalkulator": "BrukesDirekte",
+                                                   "temakategori": "finans",
+                                                   "sorteringsNoekkel": "030309",
+                                                   "beloep": self.loss_from_sale_mutual_fund_interest_comp_combi_fund,
+                                                   "autofokus": True,
+                                                   "postnummer": "3.3.9",
+                                                   "tekniskNavn": "tapVedRealisasjonAvVerdipapirfondsandelIKombifondKnyttetTilRentedel",
+                                                   "temaunderkategori": "finansAnnetFradrag",
+                                                   "type": "ske.fastsetting.skatt.skattegrunnlag.v2_0.SkattegrunnlagsobjektXml",
+                                                   "id": "OGTFIxE8l"},
+                                                   {
+                                                   "ledetekst": "Formue andeler i verdipapirfond – aksjedel",
+                                                   "brukIKalkulator": "BrukesDirekte",
+                                                   "temakategori": "finans",
+                                                   "sorteringsNoekkel": "040104",
+                                                   "beloep": self.mutual_fund_wealth_share_comp,
+                                                   "autofokus": True,
+                                                   "postnummer": "4.1.4",
+                                                   "tekniskNavn": "verdiFoerVerdsettingsrabattForVerdipapirfondsandelKnyttetTilAksjedel",
+                                                   "temaunderkategori": "aksjeFormue",
+                                                   "type": "ske.fastsetting.skatt.skattegrunnlag.v2_0.SkattegrunnlagsobjektXml",
+                                                   "id": "Y8VYl5ZIt"},
+                                                   {
+                                                   "ledetekst": "Formue andeler i verdipapirfond - rentedel",
+                                                   "brukIKalkulator": "BrukesDirekte",
+                                                   "temakategori": "finans",
+                                                   "sorteringsNoekkel": "040105",
+                                                   "beloep": self.mutual_fund_wealth_interest_comp,
+                                                   "autofokus": True,
+                                                   "postnummer": "4.1.5",
+                                                   "tekniskNavn": "formuesverdiForVerdipapirfondsandelKnyttetTilRentedel",
+                                                   "temaunderkategori": "finansAnnetFormue",
+                                                   "type": "ske.fastsetting.skatt.skattegrunnlag.v2_0.SkattegrunnlagsobjektXml",
+                                                   "id": "_9Y7rjtnc"},
+                                                   {
+                                                   "ledetekst": "Formuesverdi av aksjer mv.",
+                                                   "brukIKalkulator": "BrukesDirekte",
+                                                   "temakategori": "finans",
+                                                   "sorteringsNoekkel": "040107",
+                                                   "beloep": self.wealth_in_shares,
+                                                   "autofokus": True,
+                                                   "postnummer": "4.1.7",
+                                                   "tekniskNavn": "verdiFoerVerdsettingsrabattForAksjeIVPS",
+                                                   "temaunderkategori": "aksjeFormue",
+                                                   "type": "ske.fastsetting.skatt.skattegrunnlag.v2_0.SkattegrunnlagsobjektXml",
+                                                   "id": "oQsYwc3ug"},
+                                                   {"ledetekst": "Formue norske aksjer/Formue utenlandske aksjer fra norske banker",
+                                                    "brukIKalkulator": "BrukesDirekte",
+                                                    "temakategori": "finans",
+                                                    "sorteringsNoekkel": "040108",
+                                                    "beloep": self.wealth_in_unlisted_shares,
+                                                    "autofokus": True,
+                                                    "postnummer": "4.1.8",
+                                                    "tekniskNavn": "verdiFoerVerdsettingsrabattForAksje",
+                                                    "temaunderkategori": "aksjeFormue",
+                                                    "type": "ske.fastsetting.skatt.skattegrunnlag.v2_0.SkattegrunnlagsobjektXml",
+                                                    "id": "2iZ7mXh1g"},
+                                                   {"ledetekst": "Formue aksjesparekonto - kontanter",
+                                                    "brukIKalkulator": "BrukesDirekte",
+                                                    "temakategori": "finans",
+                                                    "sorteringsNoekkel": "040108",
+                                                    "beloep": self.wealth_ask_cash,
+                                                    "autofokus": True,
+                                                    "postnummer": "4.1.8",
+                                                    "tekniskNavn": "formuesverdiForKontanterIAksjesparekonto",
+                                                    "temaunderkategori": "finansAnnetFormue",
+                                                    "type": "ske.fastsetting.skatt.skattegrunnlag.v2_0.SkattegrunnlagsobjektXml",
+                                                    "id": "znfRNpWHa"},
+                                                   {"ledetekst": "Formue fondskonto kontant/rentedel",
+                                                    "brukIKalkulator": "BrukesDirekte",
+                                                    "temakategori": "finans",
+                                                    "sorteringsNoekkel": "040502",
+                                                    "beloep": self.wealth_fondskonto_cash_interest,
+                                                    "autofokus": True,
+                                                    "postnummer": "4.5.2",
+                                                    "tekniskNavn": "formuesverdiForKontanterMvIFondskonto",
+                                                    "temaunderkategori": "finansAnnetFormue",
+                                                    "type": "ske.fastsetting.skatt.skattegrunnlag.v2_0.SkattegrunnlagsobjektXml",
+                                                    "id": "G6DfOhyqx"},
+                                                   {
+                                                   "ledetekst": "Formue aksjesparekonto - aksjedel",
+                                                   "brukIKalkulator": "BrukesDirekte",
+                                                   "temakategori": "finans",
+                                                   "sorteringsNoekkel": "040108",
+                                                   "beloep": self.wealth_ask_shares,
+                                                   "autofokus": True,
+                                                   "postnummer": "4.1.8",
+                                                   "tekniskNavn": "verdiFoerVerdsettingsrabattForAksjedelIAksjesparekonto",
+                                                   "temaunderkategori": "aksjeFormue",
+                                                   "type": "ske.fastsetting.skatt.skattegrunnlag.v2_0.SkattegrunnlagsobjektXml",
+                                                   "id": "zXZJsFeLo"},
+                                                   {"ledetekst": "Formue fondskonto aksjedel",
+                                                    "brukIKalkulator": "BrukesDirekte",
+                                                    "temakategori": "finans",
+                                                    "sorteringsNoekkel": "040502",
+                                                    "beloep": self.wealth_fondskonto_shares,
+                                                    "autofokus": True,
+                                                    "postnummer": "4.5.2",
+                                                    "tekniskNavn": "verdiFoerVerdsettingsrabattForAksjeOgAksjefondIFondskonto",
+                                                    "temaunderkategori": "aksjeFormue",
+                                                    "type": "ske.fastsetting.skatt.skattegrunnlag.v2_0.SkattegrunnlagsobjektXml",
+                                                    "id": "_XmJTs4k8"},
+                                                   {"ledetekst": "Gevinst salg verdipapirfond rentedel",
+                                                    "brukIKalkulator": "BrukesDirekte",
+                                                    "temakategori": "finans",
+                                                    "sorteringsNoekkel": "030109",
+                                                    "beloep": self.mutual_fund_interest_comp_profit,
+                                                    "autofokus": True,
+                                                    "postnummer": "3.1.9",
+                                                    "tekniskNavn": "gevinstVedRealisasjonAvVerdipapirfondsandelKnyttetTilRentedel",
+                                                    "temaunderkategori": "finansAnnetInntekt",
+                                                    "type": "ske.fastsetting.skatt.skattegrunnlag.v2_0.SkattegrunnlagsobjektXml",
+                                                    "id": "3keEJTbpe"},
+                                                   {"ledetekst": "Gevinst salg verdipapirfond rentedel kombifond",
+                                                    "brukIKalkulator": "BrukesDirekte",
+                                                    "temakategori": "finans",
+                                                    "sorteringsNoekkel": "030109",
+                                                    "beloep":self.mutual_fund_interest_comp_profit_combi_fund,
+                                                    "autofokus": True,
+                                                    "postnummer": "3.1.9",
+                                                    "tekniskNavn": "gevinstVedRealisasjonAvVerdipapirfondsandelIKombifondKnyttetTilRentedel",
+                                                    "temaunderkategori": "finansAnnetInntekt",
+                                                    "type": "ske.fastsetting.skatt.skattegrunnlag.v2_0.SkattegrunnlagsobjektXml",
+                                                    "id": "9MwMeA8Ck"},
+                                                   {"ledetekst": "Gevinst ved salg av fondskonto aksjedel",
+                                                    "brukIKalkulator": "BrukesDirekte",
+                                                    "temakategori": "finans",
+                                                    "sorteringsNoekkel": "030104",
+                                                    "beloep": 0,
+                                                    "autofokus": True,
+                                                    "postnummer": "3.1.4",
+                                                    "tekniskNavn": "gevinstVedRealisasjonAvOgUttakFraAksjedelIFondskonto",
+                                                    "temaunderkategori": "aksjeInntekt",
+                                                    "type": "ske.fastsetting.skatt.skattegrunnlag.v2_0.SkattegrunnlagsobjektXml",
+                                                    "id": "8B1puNRK4"},
+                                                   {
+                                                   "ledetekst": "Skattepliktig utbytte fra Aksjeoppgaven/utenlandske aksjer fra norske banker",
+                                                   "brukIKalkulator": "BrukesDirekte",
+                                                   "temakategori": "finans",
+                                                   "sorteringsNoekkel": "030105",
+                                                   "beloep": self.dividends,
+                                                   "autofokus": True,
+                                                   "postnummer": "3.1.5",
+                                                   "tekniskNavn": "utbytteFraAksje",
+                                                   "temaunderkategori": "aksjeInntekt",
+                                                   "type": "ske.fastsetting.skatt.skattegrunnlag.v2_0.SkattegrunnlagsobjektXml",
+                                                   "id": "AuHD5aILi"},
+                                                   {"ledetekst": "Utbytte/utdeling verdipapirfond",
+                                                    "brukIKalkulator": "BrukesDirekte",
+                                                    "temakategori": "finans",
+                                                    "sorteringsNoekkel": "030106",
+                                                    "beloep": self.mutual_fund_dividends,
+                                                    "autofokus": True,
+                                                    "postnummer": "3.1.6",
+                                                    "tekniskNavn": "skattepliktigUtbytteFraVerdipapirfondsandel",
+                                                    "temaunderkategori": "aksjeInntekt",
+                                                    "type": "ske.fastsetting.skatt.skattegrunnlag.v2_0.SkattegrunnlagsobjektXml",
+                                                    "id": "Gh76es4Y5"},
+                                                   # { "ledetekst": "Gevinst ved salg av aksjer fra Aksjeoppgaven/utenlandske aksjer i norske banker", "brukIKalkulator": "BrukesDirekte", "temakategori": "finans", "sorteringsNoekkel": "030108", "beloep": 0, "autofokus": True, "postnummer": "3.1.8", "tekniskNavn": "gevinstVedRealisasjonAvAksje", "temaunderkategori": "aksjeInntekt", "type": "ske.fastsetting.skatt.skattegrunnlag.v2_0.SkattegrunnlagsobjektXml", "id": "4S0kLvk1l"},
+                                                   {"ledetekst": "Gevinst salg verdipapirfond aksjedel",
+                                                    "brukIKalkulator": "BrukesDirekte",
+                                                    "temakategori": "finans",
+                                                    "sorteringsNoekkel": "030109",
+                                                    "beloep": self.mutual_fund_share_comp_profit,
+                                                    "autofokus": True,
+                                                    "postnummer": "3.1.9",
+                                                    "tekniskNavn": "gevinstVedRealisasjonAvVerdipapirfondsandelKnyttetTilAksjedel",
+                                                    "temaunderkategori": "aksjeInntekt",
+                                                    "type": "ske.fastsetting.skatt.skattegrunnlag.v2_0.SkattegrunnlagsobjektXml",
+                                                    "id": "CixZRINes"},
+                                                   {"ledetekst": "Gevinst salg verdipapirfond aksjedel kombifond",
+                                                    "brukIKalkulator": "BrukesDirekte",
+                                                    "temakategori": "finans",
+                                                    "sorteringsNoekkel": "030109",
+                                                    "beloep": self.mutual_fund_share_comp_profit_combi_fund,
+                                                    "autofokus": True,
+                                                    "postnummer": "3.1.9",
+                                                    "tekniskNavn": "gevinstVedRealisasjonAvVerdipapirfondsandelIKombifondKnyttetTilAksjedel",
+                                                    "temaunderkategori": "aksjeInntekt",
+                                                    "type": "ske.fastsetting.skatt.skattegrunnlag.v2_0.SkattegrunnlagsobjektXml",
+                                                    "id": "ccob_mQEQ"},
+                                                ]},
+                'skattepliktV8': {'skattesubjekt': {'personligSkattesubjekt': {'alderIInntektsaar': '%d' % age, 'skattepliktTilNorge': 'GLOBAL', 'tolvdelVedArbeidsoppholdINorge': '12'}, 'skattested': self.municipality, 'skattestedITiltakssone': False}}}
+
+        return base
