@@ -17,17 +17,13 @@ The tests are run daily on github via test_swedish_tax.py
 import pdb
 import copy
 import datetime
-from functools import lru_cache
-import os
-from tqdm import tqdm
 import numpy as np
 import pandas as pd
-import requests
 import tax_utils as tut
+from tax_calculator import TaxCalculator
 
 
-
-class SwedishTax:
+class SwedishTax(TaxCalculator):
     """
     to facilitate easy input
 
@@ -39,7 +35,9 @@ class SwedishTax:
 
         self._salary = salary
         self._birth_year = birth_year
-        self._tax_year = tax_year
+        if tax_year is None:
+            tax_year = pd.to_datetime('today').year
+
         self._listed_funds_and_shares_profit = listed_funds_and_shares_profit
         self._listed_funds_and_shares_loss = listed_funds_and_shares_loss
         self._int_inc_tax_withheld = int_inc_tax_withheld
@@ -59,34 +57,14 @@ class SwedishTax:
         self._unlisted_shares_profit_loss = unlisted_shares_profit_loss
         self._tax_breakdown_dict = {}
 
-        self._headers = {'Accept': 'application/json, text/plain, */*',
-                         'Accept-Language': 'en-US,en;q=0.5',
-                         'Cache-Control': 'no-cache',
-                         'Connection': 'keep-alive',
-                         'DNT': '1',
-                         'Pragma': 'no-cache',
-                         'Referer': 'http://stats.nba.com/',
-                         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_9_3) AppleWebKit/537.75.14 (KHTML, like Gecko) Version/7.0.3 Safari/7046A194A',
-                         'content-type': 'application/json',
-                         'x-nba-stats-origin': 'stats',
-                         'x-nba-stats-token': 'true'}
-
-        self._tax_url = "https://app.skatteverket.se/gateway-skut-skatteutrakning/skatteberakning-fysisk/rakna-ut-skatt"
-
-        self._case_file = 'se_test_cases.ini'
-
+        self._jurisdiction = 'SWE'
         self._income_deduction = None
         self._job_deduction = None
-
-        if case_idx is not None:
-            self._case_idx = case_idx
-            inputs = tut.inputs_for_case_number(
-                case_idx, case_file=self._case_file, include_correct_tax=False)
-
-            for field, val in inputs.items():
-                if hasattr(self, field):
-                    # print('%s: %s'%(field, str(val)))
-                    setattr(self, field, val)
+        super().__init__(
+            jurisdiction=self._jurisdiction,
+            case_idx=case_idx,
+            tax_url="https://app.skatteverket.se/gateway-skut-skatteutrakning/skatteberakning-fysisk/rakna-ut-skatt",
+            tax_year=tax_year)
 
     @property
     def salary(self):
@@ -106,15 +84,6 @@ class SwedishTax:
         self._headers = value
 
     @property
-    def tax_url(self):
-        return self._tax_url
-
-    @tax_url.setter
-    def tax_url(self, value):
-        assert isinstance(value, str), "URL needs to be a string"
-        self._tax_url = value
-
-    @property
     def tax_breakdown_dict(self):
         return self._tax_breakdown_dict
 
@@ -130,12 +99,6 @@ class SwedishTax:
     @birth_year.setter
     def birth_year(self, value):
         self._birth_year = value
-
-    @property
-    def tax_year(self):
-        if self._tax_year is None:
-            return pd.to_datetime('today').year
-        return self._tax_year
 
     @property
     def listed_funds_and_shares_profit(self):
@@ -235,7 +198,8 @@ class SwedishTax:
     @municipality.setter
     def municipality(self, value):
         params = tut.tax_parameters(jurisdiction='SE', tax_year=self.tax_year)
-        assert 'kommunalskatt_%s'%value.lower() in dict(params), "Tax rate for '%s' not implemented yet!"%value
+        assert 'kommunalskatt_%s' % value.lower() in dict(
+            params), "Tax rate for '%s' not implemented yet!" % value
         self._municipality = value
 
     @property
@@ -311,42 +275,6 @@ class SwedishTax:
         assert tut.value_is_numeric_type(
             value), "unlisted_shares_profit_loss should be a number!"
         self._unlisted_shares_profit_loss = value
-
-    @property
-    def case_idx(self):
-        return self._case_idx
-
-    @case_idx.setter
-    def case_idx(self, value):
-        # print("Trying to set case_idx to %s" % value)
-        if value is not None:
-            self._case_idx = value
-            self.__init__()
-            inputs = tut.inputs_for_case_number(
-                value, case_file=self._case_file, include_correct_tax=False)
-
-            for field, val in inputs.items():
-                if hasattr(self, field):
-                    # print('%s: %s'%(field, str(val)))
-                    setattr(self, field, val)
-        # self._case_idx = value
-
-    @property
-    def tax_parameters(self):
-        return tut.tax_parameters(jurisdiction='SE', tax_year=self.tax_year)
-
-    @lru_cache(maxsize=None)
-    def parameter(self, pname='', divisor=1):
-        ret_val = self.tax_parameters.getfloat(pname)
-
-        if ret_val is None:
-          raise Exception("No such parameter ('%s')!"%(pname))
-        return ret_val/divisor
-
-    @property
-    def case_file(self):
-        assert os.path.exists(self._case_file), "'%s' doesn't exist!"%self._case_file
-        return self._case_file
 
     @property
     def income_deduction(self):
@@ -449,7 +377,7 @@ class SwedishTax:
         returns the extra income we need to add and then the extra capital_income we need to add
         Detta ar blankett K10
 
-        If you earn money through your company, some of that money could be reclassified as employment income etc, 
+        If you earn money through your company, some of that money could be reclassified as employment income etc,
         so we need this extra calculation step.
         """
         extra_unlisted_funds_loss = 0
@@ -537,17 +465,21 @@ class SwedishTax:
     def _basic_deduction_base_case(self):
 
         # TODO: Add these as parameters, will change
-        if self.salary_rounded() <= self.parameter('ga_m1') * self.parameter('pris_bas_belopp'):
+        if self.salary_rounded() <= self.parameter('ga_m1') * \
+                self.parameter('pris_bas_belopp'):
             # A in s/s
             return 0.423 * self.parameter('pris_bas_belopp')
-        if self.salary_rounded() <= self.parameter('ga_m2') * self.parameter('pris_bas_belopp'):
+        if self.salary_rounded() <= self.parameter('ga_m2') * \
+                self.parameter('pris_bas_belopp'):
             # B in s/s
             return 0.423 * self.parameter('pris_bas_belopp') + 0.2 * (
                 self.salary_rounded() - self.parameter('ga_m1') * self.parameter('pris_bas_belopp'))
-        if self.salary_rounded() <= self.parameter('ga_m3') * self.parameter('pris_bas_belopp'):
+        if self.salary_rounded() <= self.parameter('ga_m3') * \
+                self.parameter('pris_bas_belopp'):
             # C in s/s
             return 0.77 * self.parameter('pris_bas_belopp')
-        if self.salary_rounded() <= self.parameter('ga_m4') * self.parameter('pris_bas_belopp'):
+        if self.salary_rounded() <= self.parameter('ga_m4') * \
+                self.parameter('pris_bas_belopp'):
             return 0.77 * self.parameter('pris_bas_belopp') - 0.1 * (
                 self.salary_rounded() - self.parameter('ga_m3') * self.parameter('pris_bas_belopp'))
 
@@ -557,41 +489,52 @@ class SwedishTax:
     def _basic_deduction_extra(self):
         # extra = 0
         if self.birth_year <= self.old_age_limit_year():
-            if self.salary_rounded() <= self.parameter('ega_m1') * self.parameter('pris_bas_belopp'):
+            if self.salary_rounded() <= self.parameter('ega_m1') * \
+                    self.parameter('pris_bas_belopp'):
                 return 0.687 * self.parameter('pris_bas_belopp')
-            if self.salary_rounded() <= self.parameter('ega_m2') * self.parameter('pris_bas_belopp'):
+            if self.salary_rounded() <= self.parameter('ega_m2') * \
+                    self.parameter('pris_bas_belopp'):
                 return 0.885 * \
                     self.parameter('pris_bas_belopp') - \
                     0.2 * self.salary_rounded()
-            if self.salary_rounded() <= self.parameter('ega_m3') * self.parameter('pris_bas_belopp'):
+            if self.salary_rounded() <= self.parameter('ega_m3') * \
+                    self.parameter('pris_bas_belopp'):
                 return 0.6 * \
                     self.parameter('pris_bas_belopp') + \
                     0.057 * self.salary_rounded()
-            if self.salary_rounded() <= self.parameter('ega_m4') * self.parameter('pris_bas_belopp'):
+            if self.salary_rounded() <= self.parameter('ega_m4') * \
+                    self.parameter('pris_bas_belopp'):
                 return 0.34 * \
                     self.parameter('pris_bas_belopp') - \
                     0.169 * self.salary_rounded()
-            if self.salary_rounded() <= self.parameter('ega_m5') * self.parameter('pris_bas_belopp'):
+            if self.salary_rounded() <= self.parameter('ega_m5') * \
+                    self.parameter('pris_bas_belopp'):
                 return 0.44 * self.salary_rounded() - 0.48 * self.parameter('pris_bas_belopp')
 
-            if self.salary_rounded() <= self.parameter('ega_m6') * self.parameter('pris_bas_belopp'):
+            if self.salary_rounded() <= self.parameter('ega_m6') * \
+                    self.parameter('pris_bas_belopp'):
                 return 0.207 * \
                     self.parameter('pris_bas_belopp') + \
                     0.228 * self.salary_rounded()
-            if self.salary_rounded() <= self.parameter('ega_m7') * self.parameter('pris_bas_belopp'):
+            if self.salary_rounded() <= self.parameter('ega_m7') * \
+                    self.parameter('pris_bas_belopp'):
                 return 0.995 * \
                     self.parameter('pris_bas_belopp') + \
                     0.128 * self.salary_rounded()
-            if self.salary_rounded() <= self.parameter('ega_m8') * self.parameter('pris_bas_belopp'):
+            if self.salary_rounded() <= self.parameter('ega_m8') * \
+                    self.parameter('pris_bas_belopp'):
                 return 2.029 * self.parameter('pris_bas_belopp')
-            if self.salary_rounded() <= self.parameter('ega_m9') * self.parameter('pris_bas_belopp'):
+            if self.salary_rounded() <= self.parameter('ega_m9') * \
+                    self.parameter('pris_bas_belopp'):
                 return 9.023 * \
                     self.parameter('pris_bas_belopp') - \
                     0.62 * self.salary_rounded()
-            if self.salary_rounded() <= self.parameter('ega_m10') * self.parameter('pris_bas_belopp'):
+            if self.salary_rounded() <= self.parameter('ega_m10') * \
+                    self.parameter('pris_bas_belopp'):
                 # extra = 1.654 * basbelopp - 0.045 * salary
                 return 1.253 * self.parameter('pris_bas_belopp')
-            if self.salary_rounded() <= self.parameter('ega_m11') * self.parameter('pris_bas_belopp'):
+            if self.salary_rounded() <= self.parameter('ega_m11') * \
+                    self.parameter('pris_bas_belopp'):
                 return 2.03 * \
                     self.parameter('pris_bas_belopp') - \
                     0.0574 * self.salary_rounded()
@@ -606,8 +549,9 @@ class SwedishTax:
         the extra for 65+ is described here:
         https://www.regeringen.se/4a6f30/contentassets/23ff11528fc54f918a144c067b44672e/ytterligare-skattesankningar-for-personer-over-65-ar.pdf
         """
-        
-        return min(np.ceil((self._basic_deduction_base_case() + self._basic_deduction_extra()) / 100) * 100, self.salary_rounded())
+
+        return min(np.ceil((self._basic_deduction_base_case(
+        ) + self._basic_deduction_extra()) / 100) * 100, self.salary_rounded())
 
     def _jobbskatteavdrag_older(self):
         """
@@ -630,16 +574,20 @@ class SwedishTax:
         # TODO: get limits and rates from params file
         if self.birth_year <= self.old_age_limit_year():
             return 0
-        if self.salary_rounded() <= self.parameter('jsa_m1') * self.parameter('pris_bas_belopp'):
+        if self.salary_rounded() <= self.parameter('jsa_m1') * \
+                self.parameter('pris_bas_belopp'):
             return self.parameter('kommunalskatt_%s' % self.municipality,
                                   100) * (self.salary_rounded() - self.basic_deduction())
-        if self.salary_rounded() <= self.parameter('jsa_m2') * self.parameter('pris_bas_belopp'):
+        if self.salary_rounded() <= self.parameter('jsa_m2') * \
+                self.parameter('pris_bas_belopp'):
             return (self.parameter('jsa_m1') * self.parameter('pris_bas_belopp') + 0.3405 * (self.salary_rounded() - self.parameter('jsa_m1') * self.parameter(
                 'pris_bas_belopp')) - self.basic_deduction()) * self.parameter('kommunalskatt_%s' % self.municipality, 100)
-        if self.salary_rounded() <= self.parameter('jsa_m3') * self.parameter('pris_bas_belopp'):
+        if self.salary_rounded() <= self.parameter('jsa_m3') * \
+                self.parameter('pris_bas_belopp'):
             return (1.703 * self.parameter('pris_bas_belopp') + 0.128 * (self.salary_rounded() - self.parameter('jsa_m2') * self.parameter(
                 'pris_bas_belopp')) - self.basic_deduction()) * self.parameter('kommunalskatt_%s' % self.municipality, 100)
-        if self.salary_rounded() <= self.parameter('jsa_m4') * self.parameter('pris_bas_belopp'):
+        if self.salary_rounded() <= self.parameter('jsa_m4') * \
+                self.parameter('pris_bas_belopp'):
             return (2.323 * self.parameter('pris_bas_belopp') - self.basic_deduction()
                     ) * self.parameter('kommunalskatt_%s' % self.municipality, 100)
 
@@ -711,7 +659,7 @@ class SwedishTax:
         """
         helper function
         """
-        
+
         return np.floor(self.parameter('skatte_reduktion_forsta_niva') * min(self.parameter('tak_skattereduktion'), netto_underskott) +
                         self.parameter('skatte_reduktion_andra_niva') * max(netto_underskott - self.parameter('tak_skattereduktion'), 0))
 
@@ -850,42 +798,6 @@ class SwedishTax:
                                    'skattereduktionUnderskottKapital': cap_tax_reduction, 'avdragenSkattPaKapital': self.parameter('statlig_skatt', 100) * self.int_inc_tax_withheld}
         return total_tax - \
             self.parameter('statlig_skatt', 100) * self.int_inc_tax_withheld
-
-    def tax_ties_with_config(
-            self, do_all=False, atol=1e-8, rtol=1e-5):
-        """
-        Check that the computed tax ties with the tax stored in the config file
-        """
-        if not do_all:
-            return np.allclose(tut.config_tax(
-                self.case_idx, case_file=self.case_file), self.tax())
-
-        case_numbers = tut.all_case_numbers(case_file=self.case_file)
-        observed = []
-        expected = []
-        for case_idx in tqdm(case_numbers):
-            # print("working on case number %d" % case_idx)
-            setattr(self, 'case_idx', case_idx)
-            # self.case_idx =
-            # pdb.set_trace()
-            observed.append(self.tax())
-            expected.append(
-                tut.config_tax(
-                    self.case_idx,
-                    case_file=self.case_file))
-
-        # pdb.set_trace()
-        if not np.allclose(observed, expected, atol=atol, rtol=rtol):
-            exp = np.array(expected)
-            obs = np.array(observed)
-            good_idx = np.abs(exp - obs) <= (atol + rtol * np.abs(obs))
-            # pdb.set_trace()
-            bad_idx = np.where(~good_idx)[0]
-            print("Some checks failed!")
-            return bad_idx
-
-        print("All tests passed!")
-        return True
 
     def payload(self):
         """
@@ -1082,42 +994,6 @@ class SwedishTax:
                                       'underlagFastighetsskatt': {'fastighetsskattSmahusTomt': 'null'}}
         return data
 
-    def tax_ties_with_web(self, do_all=False, atol=1e-8,
-                          rtol=1e-5, refresh=False, verbose=False):
-        """
-        this will (obviously hit the tax authority web server)
-        """
-        if not do_all:
-            return np.allclose(self.official_tax(), self.tax())
-
-        case_numbers = tut.all_case_numbers(case_file=self.case_file)
-        observed = []
-        expected = []
-        with requests.Session() as sesh:
-            for case_idx in tqdm(case_numbers):
-                setattr(self, 'case_idx', case_idx)
-                observed.append(self.tax())
-                expected.append(
-                    self.official_tax(session=sesh, refresh=refresh))
-                # if verbose:
-
-        if not np.allclose(observed, expected, atol=atol, rtol=rtol):
-            exp = np.array(expected)
-            obs = np.array(observed)
-
-            good_idx = np.abs(exp - obs) <= (atol + rtol * np.abs(obs))
-            bad_idx = np.where(~good_idx)[0]
-
-            print("Some checks failed!")
-            if verbose:
-                out = []
-                for idx in bad_idx:
-                    out.append([idx, exp[idx], obs[idx]])
-                print(pd.DataFrame(out, columns=['case', 'exp', 'obs']))
-            return bad_idx
-        print("All tests passed!")
-        return True
-
     def tax_breakdown(self):
         """
         simple breakdown of the components making up tax. so far quite unstructured
@@ -1126,27 +1002,7 @@ class SwedishTax:
         raw = self.tax_breakdown_dict
         return pd.DataFrame(raw, index=['0'])
 
-    def query_web_for_tax_results(self, refresh=False, session=None):
-        """
-        post the request to skatteverket.se
-        """
-        if session is None:
-            res = tut.get_request(
-                self.tax_url,
-                method='post',
-                payload_=self.payload(),
-                headers_=self.headers,
-                refresh=refresh)
-        else:
-            res = tut.post_request_from_session(
-                url=self.tax_url,
-                payload_=self.payload(),
-                headers=self.headers,
-                refresh=refresh,
-                session=session)
-        return res.json()
-
-    def official_tax(self, refresh=False, session=None):
+    def official_tax(self, session=None, refresh=False):
         """
         would be great if we didn't have to do the extra step here...
         """
@@ -1161,7 +1017,8 @@ class SwedishTax:
         make a dataframe from the structure returned by the web query
         """
 
-        raw = self.query_web_for_tax_results(refresh=refresh, session=session)
+        resp = self.query_web_for_tax_results(refresh=refresh, session=session)
+        raw = resp.json()
         if 'leafs' not in raw:
             # this means something is wrong
             # pdb.set_trace()
