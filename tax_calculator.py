@@ -5,7 +5,7 @@ This is the base class for all the jurisdictions
 ==attributes that the inheriting class needs to implement==
 
 * payload (to pass to the web request)
-* tax_url 
+* tax_url
 * tax()
 * official_tax()
 * parsed_official_response - parse the response from the web request into a dataframe or such-like - this will then form the basis for the official_tax
@@ -25,8 +25,8 @@ This is the base class for all the jurisdictions
 """
 import os
 from functools import lru_cache
-import numpy as np
 import configparser
+import numpy as np
 from tqdm import tqdm
 import requests
 import pandas as pd
@@ -43,6 +43,7 @@ class TaxCalculator:
         self._case_file = case_file
         self._tax_url = tax_url
         self._tax_year = tax_year
+        self._case_numbers = sorted(map(int, list(set(self.case_file_data.keys()) - set(['DEFAULT']))))
         if self._case_idx is not None:
             inputs = tut.inputs_for_case_number(
                 self._case_idx, case_file=case_file, include_correct_tax=False)
@@ -83,10 +84,10 @@ class TaxCalculator:
                     # print('%s: %s'%(field, str(val)))
                     setattr(self, field, val)
 
-    
     @property
     def headers(self):
-      return self._headers
+        return self._headers
+
     @property
     def tax_url(self):
         return self._tax_url
@@ -133,13 +134,18 @@ class TaxCalculator:
         cases.read(self.case_file)
         return dict(cases)
 
+    @property
+    def case_numbers(self):
+        return self._case_numbers
     def tax(self):
         return 0
 
     def official_tax(self, session=None, refresh=False):
         return 0
+
     def config_tax(self):
-      return tut.config_tax(self.case_idx, case_file=self.case_file)
+        return tut.config_tax(self.case_idx, case_file=self.case_file)
+
     def tax_ties_with_config(
             self, do_all=False, atol=1e-8, rtol=1e-5, verbose=False):
         """
@@ -223,7 +229,10 @@ class TaxCalculator:
         return True
 
     def payload(self):
-      return None
+        """
+        dummy that will be filled in by inheriting class
+        """
+        return None
 
     def query_web_for_tax_results(self, refresh=False, session=None):
         """
@@ -246,5 +255,22 @@ class TaxCalculator:
                 refresh=refresh,
                 session=session)
         return res
+
+
+    
+    def dump_config_answers(self):
+        """
+        for excel file
+        """
+
+        out = []
+        for case_idx in self.case_numbers:
+            # input_struct = {}
+            for k, value in self.case_file_data['%d' % case_idx].items():
+                if k == 'tax':
+                    out.append([case_idx, value])
+
+        return pd.DataFrame(out, columns=['Case', 'Skatt'])
+
     def __repr__(self):
-      return '%s - %d'%(self.jurisdiction, self.case_idx)
+        return '%s - %d' % (self.jurisdiction, self.case_idx)

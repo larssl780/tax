@@ -206,6 +206,7 @@ def config_tax(case_idx=0, correct_tax_field='tax', case_file='no_test_cases.ini
     """
     what is the 'correct' tax as per the config
     """
+    # print("getting inputs from %s with case_idx = %d"%(case_file, case_idx))
     input_struct = inputs_for_case_number(case_idx, case_file=case_file, include_correct_tax=True)
     return input_struct.get(correct_tax_field, None)
 
@@ -238,10 +239,13 @@ def inputs_for_case_number(case_idx=0, case_file='no_test_cases.ini', include_co
     """
     helper function
     """
+    if case_idx is None:
+        return {}
     input_struct = {}
     cases = configparser.ConfigParser()
     cases.read(case_file)
-   
+    # pdb.set_trace()
+    # print(case_idx)  
     for k, value in cases['%d' % case_idx].items():
         if k != correct_tax_field:
             input_struct[k] = value
@@ -259,6 +263,7 @@ def inputs_for_case_number(case_idx=0, case_file='no_test_cases.ini', include_co
 
     
     return input_struct
+    
 
 def all_case_numbers(case_file='no_test_cases.ini'):
     """
@@ -327,6 +332,8 @@ def get_request_from_session(session=None, url='', refresh=False, headers=None):
         cache.set_gp_cache(ck, rv)
     return rv
 
+
+
 def value_is_numeric_type(X):
     X = np.asanyarray(X)
     
@@ -347,3 +354,5 @@ def post_request_from_session(session=None, url='', refresh=False, headers=None,
     if __can_cache__:
         cache.set_gp_cache(ck, rv)
     return rv
+
+
